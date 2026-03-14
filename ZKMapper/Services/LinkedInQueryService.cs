@@ -20,15 +20,15 @@ internal sealed class LinkedInQueryService
         _humanDelayService = humanDelayService;
     }
 
-    public async Task NavigateToSearchResultsAsync(
+    public async Task NavigateToPeoplePageAsync(
         IPage page,
         string searchUrl,
         string keyword,
         CancellationToken cancellationToken)
     {
         using var timer = ExecutionTimer.Start("QueryExecution");
-        AppLog.Next("navigating to LinkedIn search results", "QueryExecution", "navigate-search-results", $"keyword={keyword}");
-        AppLog.Action("navigating browser", "QueryExecution", "navigate-search-results", $"url={searchUrl}");
+        AppLog.Action("navigating to LinkedIn people page", "QueryExecution", "navigate-people-page", $"url={searchUrl}");
+        AppLog.Data($"url={searchUrl}", "QueryExecution", "navigate-people-page", $"keyword={keyword};url={searchUrl}");
 
         await _retryService.ExecuteAsync(async token =>
         {
@@ -48,9 +48,9 @@ internal sealed class LinkedInQueryService
             await _humanDelayService.DelayAsync(DelayProfile.Navigation, "allow LinkedIn search results to finish rendering", token);
         }, cancellationToken);
 
-        AppLog.Result("search results page loaded", "QueryExecution", "navigate-search-results", $"keyword={keyword}");
-        AppLog.Data($"url={page.Url}", "QueryExecution", "navigate-search-results", $"keyword={keyword};url={page.Url}");
-        await PlaywrightDiagnostics.TracePageSnapshotAsync(page, "QueryExecution", "navigate-search-results", cancellationToken);
+        AppLog.Result("filtered people page loaded", "QueryExecution", "navigate-people-page", $"keyword={keyword}");
+        AppLog.Data($"url={page.Url}", "QueryExecution", "navigate-people-page", $"keyword={keyword};url={page.Url}");
+        await PlaywrightDiagnostics.TracePageSnapshotAsync(page, "QueryExecution", "navigate-people-page", cancellationToken);
     }
 
     public async Task<IReadOnlyList<ContactDiscoveryTarget>> DiscoverContactsAsync(

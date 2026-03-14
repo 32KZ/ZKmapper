@@ -1,6 +1,7 @@
 using Serilog.Context;
 using ZKMapper.Infrastructure;
 using ZKMapper.Models;
+using ZKMapper.Utils;
 
 namespace ZKMapper.Services;
 
@@ -9,9 +10,8 @@ internal sealed class MapperApplication
     private readonly ConsolePromptService _promptService;
     private readonly SessionStateManager _sessionStateManager;
     private readonly BrowserManager _browserManager;
-    private readonly LinkedInNavigationService _navigationService;
-    private readonly LinkedInCompanyResolver _companyResolver;
-    private readonly LinkedInSearchUrlBuilder _searchUrlBuilder;
+    private readonly LinkedInRegionMapper _regionMapper;
+    private readonly LinkedInPeopleSearchUrlBuilder _peopleSearchUrlBuilder;
     private readonly LinkedInQueryService _queryService;
     private readonly ProfileExtractionService _profileExtractionService;
     private readonly EmailGenerationService _emailGenerationService;
@@ -22,9 +22,8 @@ internal sealed class MapperApplication
         ConsolePromptService promptService,
         SessionStateManager sessionStateManager,
         BrowserManager browserManager,
-        LinkedInNavigationService navigationService,
-        LinkedInCompanyResolver companyResolver,
-        LinkedInSearchUrlBuilder searchUrlBuilder,
+        LinkedInRegionMapper regionMapper,
+        LinkedInPeopleSearchUrlBuilder peopleSearchUrlBuilder,
         LinkedInQueryService queryService,
         ProfileExtractionService profileExtractionService,
         EmailGenerationService emailGenerationService,
@@ -34,9 +33,8 @@ internal sealed class MapperApplication
         _promptService = promptService;
         _sessionStateManager = sessionStateManager;
         _browserManager = browserManager;
-        _navigationService = navigationService;
-        _companyResolver = companyResolver;
-        _searchUrlBuilder = searchUrlBuilder;
+        _regionMapper = regionMapper;
+        _peopleSearchUrlBuilder = peopleSearchUrlBuilder;
         _queryService = queryService;
         _profileExtractionService = profileExtractionService;
         _emailGenerationService = emailGenerationService;
@@ -74,9 +72,15 @@ internal sealed class MapperApplication
         {
             using var csvWriter = new CsvWriterService(input, runMetadata);
             AppLog.Data($"csvOutputPath={csvWriter.OutputPath}", "RunCollection", "initialize-csv-writer", $"outputPath={csvWriter.OutputPath}");
-
-            await ProcessCompanyAsync(session, input, csvWriter, CancellationToken.None);
-            AppLog.Result("company mapping completed", "RunCollection", "process-company", $"companyName={input.CompanyName};outputPath={csvWriter.OutputPath}");
+            try
+            {
+                await ProcessCompanyAsync(session, input, csvWriter, CancellationToken.None);
+                AppLog.Result("company mapping completed", "RunCollection", "process-company", $"companyName={input.CompanyName};outputPath={csvWriter.OutputPath}");
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error(ex, "company mapping failed and will be skipped", "RunCollection", "process-company", $"companyName={input.CompanyName}");
+            }
         }
 
         AppLog.Summary(
@@ -96,14 +100,13 @@ internal sealed class MapperApplication
 
         using (LogContext.PushProperty("Company", input.CompanyName))
         {
-            AppLog.Next("open company page", "ProcessCompany", "navigate-company", $"companyName={input.CompanyName}");
-            await _navigationService.NavigateToCompanyPageAsync(session.Page, input, cancellationToken);
-            var companyId = await _companyResolver.ExtractCompanyIdAsync(session.Page);
+            var slug = LinkedInUrlParser.ExtractCompanySlug(input.CompanyLinkedInUrl);
+            var regionId = _regionMapper.ResolveRegionId(input.SearchCountry);
 
             for (var titleIndex = 0; titleIndex < input.TitleFilters.Count; titleIndex++)
             {
                 var keyword = input.TitleFilters[titleIndex].Trim();
-                var searchUrl = _searchUrlBuilder.BuildSearchUrl(companyId, keyword);
+                var searchUrl = _peopleSearchUrlBuilder.BuildPeopleSearchUrl(slug, keyword, regionId);
 
                 using (LogContext.PushProperty("Query", keyword))
                 {
@@ -111,17 +114,18 @@ internal sealed class MapperApplication
                         $"queryIndex={titleIndex + 1};keyword={keyword};searchUrl={searchUrl}",
                         "ProcessCompany",
                         "prepare-query",
-                        $"queryIndex={titleIndex + 1};keyword={keyword};searchUrl={searchUrl};companyId={companyId}");
+                        $"queryIndex={titleIndex + 1};keyword={keyword};searchUrl={searchUrl};slug={slug};regionId={regionId}");
 
                     try
                     {
-                        AppLog.Next("navigate to LinkedIn people search results", "ProcessCompany", "submit-query", $"queryIndex={titleIndex + 1};keyword={keyword}");
-                        await _queryService.NavigateToSearchResultsAsync(session.Page, searchUrl, keyword, cancellationToken);
+                        AppLog.Next("navigate to filtered LinkedIn people page", "ProcessCompany", "submit-query", $"queryIndex={titleIndex + 1};keyword={keyword}");
+                        await _queryService.NavigateToPeoplePageAsync(session.Page, searchUrl, keyword, cancellationToken);
                         _statistics.IncrementQueriesExecuted();
                     }
                     catch (Exception ex)
                     {
-                        AppLog.Error(ex, $"Search navigation failure for {keyword}. Continuing.", "ProcessCompany", "submit-query", $"keyword={keyword};searchUrl={searchUrl}");
+                        AppLog.Error(ex, "people search navigation failed", "ProcessCompany", "submit-query", $"company={input.CompanyName};keyword={keyword};searchUrl={searchUrl}");
+                        AppLog.Info("skipping query", "ProcessCompany", "submit-query", $"company={input.CompanyName};keyword={keyword}");
                         continue;
                     }
 
@@ -135,6 +139,7 @@ internal sealed class MapperApplication
                     catch (Exception ex)
                     {
                         AppLog.Error(ex, $"Discovery failure for {keyword}. Continuing.", "ProcessCompany", "discover-profiles", $"query={keyword}");
+                        AppLog.Info("skipping query", "ProcessCompany", "discover-profiles", $"company={input.CompanyName};keyword={keyword}");
                         continue;
                     }
 
