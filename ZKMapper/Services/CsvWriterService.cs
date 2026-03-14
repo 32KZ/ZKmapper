@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using CsvHelper;
 using ZKMapper.Infrastructure;
 using ZKMapper.Models;
@@ -22,7 +23,7 @@ internal sealed class CsvWriterService : IDisposable
             safeName = "Company";
         }
 
-        var timestampToken = runMetadata.StartedUtc.ToString("yyyy-MM-dd_HH-mm");
+        var timestampToken = runMetadata.StartedUtc.ToString("dd-MM-yy_HH-mm");
         var runNumber = ResolveNextRunNumber(safeName, timestampToken);
         var fileName = $"{safeName}_Run{runNumber:D2}_{timestampToken}.csv";
         var outputPath = Path.Combine(AppPaths.OutputDirectory, fileName);
@@ -66,9 +67,7 @@ internal sealed class CsvWriterService : IDisposable
     private static int ResolveNextRunNumber(string safeName, string timestampToken)
     {
         var existingRuns = Directory
-            .EnumerateFiles(AppPaths.OutputDirectory, $"{safeName}_Run*_*.csv", SearchOption.TopDirectoryOnly)
-            .Select(Path.GetFileNameWithoutExtension)
-            .Where(name => name is not null && name.Contains($"_{timestampToken}", StringComparison.OrdinalIgnoreCase))
+            .EnumerateFiles(AppPaths.OutputDirectory, $"{safeName}_Run*.csv", SearchOption.TopDirectoryOnly)
             .Select(GetRunNumber)
             .DefaultIfEmpty(0)
             .Max();
@@ -76,24 +75,20 @@ internal sealed class CsvWriterService : IDisposable
         return existingRuns + 1;
     }
 
-    private static int GetRunNumber(string? fileName)
+    private static int GetRunNumber(string? filePath)
     {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return 0;
+        }
+
+        var fileName = Path.GetFileNameWithoutExtension(filePath);
         if (string.IsNullOrWhiteSpace(fileName))
         {
             return 0;
         }
 
-        var markerIndex = fileName.IndexOf("_Run", StringComparison.OrdinalIgnoreCase);
-        if (markerIndex < 0)
-        {
-            return 0;
-        }
-
-        var digits = new string(fileName
-            .Skip(markerIndex + 4)
-            .TakeWhile(char.IsDigit)
-            .ToArray());
-
-        return int.TryParse(digits, out var parsed) ? parsed : 0;
+        var match = Regex.Match(fileName, @"_Run(\d+)", RegexOptions.IgnoreCase);
+        return match.Success && int.TryParse(match.Groups[1].Value, out var parsed) ? parsed : 0;
     }
 }

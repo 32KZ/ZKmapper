@@ -202,6 +202,7 @@ internal sealed class LinkedInQueryService
             var absoluteHref = href.StartsWith("http", StringComparison.OrdinalIgnoreCase)
                 ? href
                 : $"https://www.linkedin.com{href}";
+            absoluteHref = absoluteHref.Split('?', 2)[0];
 
             if (!absoluteHref.Contains("/in/", StringComparison.OrdinalIgnoreCase))
             {
@@ -234,6 +235,11 @@ internal sealed class LinkedInQueryService
             "ProfileDiscovery",
             "capture-visible-targets",
             $"query={query};scope={scopeSource};added={added};skippedAnonymous={skippedAnonymous};skippedBlank={skippedBlank};skippedMissingHref={skippedMissingHref};skippedDuplicate={skippedDuplicate}");
+        AppLog.Data(
+            $"validTargets={added}",
+            "ProfileDiscovery",
+            "capture-visible-targets",
+            $"query={query};validTargets={added};skippedAnonymous={skippedAnonymous};skippedBlank={skippedBlank}");
 
         return added;
     }
@@ -249,11 +255,23 @@ internal sealed class LinkedInQueryService
                 continue;
             }
 
-            var text = (await locator.InnerTextAsync()).Trim();
-            if (!string.IsNullOrWhiteSpace(text))
+            var raw = (await locator.InnerTextAsync())?.Trim();
+            if (string.IsNullOrWhiteSpace(raw))
             {
-                return text;
+                continue;
             }
+
+            if (raw.Equals("LinkedIn Member", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (raw.Length < 3)
+            {
+                continue;
+            }
+
+            return raw;
         }
 
         return null;

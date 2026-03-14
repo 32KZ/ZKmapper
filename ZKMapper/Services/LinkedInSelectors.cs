@@ -30,9 +30,7 @@ internal static class LinkedInSelectors
     public static readonly string[] HeroCardNameCandidates =
     {
         "a[href*='/in/'] span[aria-hidden='true']",
-        "a[href*='/in/'] div[dir='ltr']",
-        "a[href*='/in/'] span",
-        "a[href*='/in/']"
+        "span[aria-hidden='true']"
     };
 
     public static readonly string[] HeroCardLinkCandidates =
