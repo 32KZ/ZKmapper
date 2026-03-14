@@ -7,10 +7,12 @@ namespace ZKMapper.Services;
 internal sealed class LinkedInNavigationService
 {
     private readonly RetryService _retryService;
+    private readonly HumanDelayService _humanDelayService;
 
-    public LinkedInNavigationService(RetryService retryService)
+    public LinkedInNavigationService(RetryService retryService, HumanDelayService humanDelayService)
     {
         _retryService = retryService;
+        _humanDelayService = humanDelayService;
     }
 
     public async Task NavigateToCompanyPeoplePageAsync(
@@ -32,7 +34,7 @@ internal sealed class LinkedInNavigationService
             token.ThrowIfCancellationRequested();
         }, cancellationToken);
 
-        await Task.Delay(TimeSpan.FromSeconds(2.5), cancellationToken);
+        await _humanDelayService.DelayAsync(2, 4, cancellationToken);
 
         var peopleTab = await page.FirstVisibleAsync(LinkedInSelectors.PeopleTabCandidates, cancellationToken);
         await _retryService.ExecuteAsync(async token =>
@@ -44,6 +46,6 @@ internal sealed class LinkedInNavigationService
 
         await page.FirstVisibleAsync(LinkedInSelectors.PeopleSearchInputCandidates, cancellationToken);
         Log.Information("Entry into People page succeeded for {CompanyName}", input.CompanyName);
-        await Task.Delay(TimeSpan.FromSeconds(2.5), cancellationToken);
+        await _humanDelayService.DelayAsync(2, 4, cancellationToken);
     }
 }

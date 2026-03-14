@@ -8,6 +8,12 @@ internal sealed class BrowserManager
 {
     private static readonly SemaphoreSlim InstallLock = new(1, 1);
     private static bool _playwrightInstalled;
+    private readonly PlaywrightContextFactory _contextFactory;
+
+    public BrowserManager(PlaywrightContextFactory contextFactory)
+    {
+        _contextFactory = contextFactory;
+    }
 
     public async Task<PlaywrightSession> LaunchAsync(bool useSavedSession, CancellationToken cancellationToken)
     {
@@ -25,16 +31,16 @@ internal sealed class BrowserManager
         var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
         {
             Headless = false,
-            SlowMo = 400
+            SlowMo = 50,
+            Args = new[]
+            {
+                "--disable-blink-features=AutomationControlled"
+            }
         });
 
-        var contextOptions = new BrowserNewContextOptions();
-        if (useSavedSession)
-        {
-            contextOptions.StorageStatePath = AppPaths.SessionStatePath;
-        }
-
-        var context = await browser.NewContextAsync(contextOptions);
+        var context = useSavedSession
+            ? await _contextFactory.CreateAuthenticatedContextAsync(browser)
+            : await _contextFactory.CreateContextAsync(browser, includeStorageState: false);
         var page = await context.NewPageAsync();
 
         cancellationToken.ThrowIfCancellationRequested();

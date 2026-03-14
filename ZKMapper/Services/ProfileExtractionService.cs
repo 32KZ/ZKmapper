@@ -8,10 +8,12 @@ namespace ZKMapper.Services;
 internal sealed class ProfileExtractionService
 {
     private readonly RetryService _retryService;
+    private readonly HumanDelayService _humanDelayService;
 
-    public ProfileExtractionService(RetryService retryService)
+    public ProfileExtractionService(RetryService retryService, HumanDelayService humanDelayService)
     {
         _retryService = retryService;
+        _humanDelayService = humanDelayService;
     }
 
     public async Task<IPage?> TryOpenProfileInNewTabAsync(
@@ -34,8 +36,9 @@ internal sealed class ProfileExtractionService
             {
                 Timeout = 5000
             });
+            var link = resultsPage.Locator(LinkedInSelectors.BuildProfileLinkSelector(target.Href ?? string.Empty)).First;
 
-            await resultsPage.Locator(LinkedInSelectors.BuildProfileLinkSelector(target.Href ?? string.Empty)).First.ClickAsync(new LocatorClickOptions
+            await link.ClickAsync(new LocatorClickOptions
             {
                 Button = MouseButton.Left,
                 Modifiers = new[] { KeyboardModifier.Control }
@@ -63,7 +66,7 @@ internal sealed class ProfileExtractionService
             }
 
             await newPage.WaitForLoadStateAsync(LoadState.DOMContentLoaded);
-            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            await _humanDelayService.DelayAsync(2, 4, cancellationToken);
 
             Log.Information("Profile opened in new tab: {ProfileUrl}", newPage.Url);
             return newPage;
@@ -75,24 +78,34 @@ internal sealed class ProfileExtractionService
         }
     }
 
-    public async Task<ExtractedProfile> ExtractAsync(
+    public async Task<ExtractedProfile?> ExtractAsync(
         IPage profilePage,
         string searchQuery,
         CancellationToken cancellationToken)
     {
         Log.Information("Start of profile extraction from {ProfileUrl}", profilePage.Url);
 
-        var fullName = await _retryService.ExecuteAsync(
-            token => ExtractFullNameAsync(profilePage, token),
-            cancellationToken);
+        try
+        {
+            var fullName = await _retryService.ExecuteAsync(
+                token => ExtractFullNameAsync(profilePage, token),
+                cancellationToken);
 
-        var currentTitles = await _retryService.ExecuteAsync(
-            token => ExtractCurrentRolesAsync(profilePage, token),
-            cancellationToken);
+            await _humanDelayService.DelayAsync(1, 2, cancellationToken);
 
-        var extracted = new ExtractedProfile(fullName, profilePage.Url, currentTitles, DateTime.UtcNow, searchQuery);
-        Log.Information("Extraction success for {FullName}", extracted.FullName);
-        return extracted;
+            var currentTitles = await _retryService.ExecuteAsync(
+                token => ExtractCurrentRolesAsync(profilePage, token),
+                cancellationToken);
+
+            var extracted = new ExtractedProfile(fullName, profilePage.Url, currentTitles, DateTime.UtcNow, searchQuery);
+            Log.Information("Extraction success for {FullName}", extracted.FullName);
+            return extracted;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Profile extraction failed: {ProfileUrl}", profilePage.Url);
+            return null;
+        }
     }
 
     private static async Task<string> ExtractFullNameAsync(IPage page, CancellationToken cancellationToken)

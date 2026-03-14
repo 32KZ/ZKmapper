@@ -1,4 +1,5 @@
 using Serilog;
+using Serilog.Context;
 using ZKMapper.Infrastructure;
 using ZKMapper.Models;
 
@@ -13,6 +14,7 @@ internal sealed class MapperApplication
     private readonly LinkedInQueryService _queryService;
     private readonly ProfileExtractionService _profileExtractionService;
     private readonly EmailGenerationService _emailGenerationService;
+    private readonly HumanDelayService _humanDelayService;
 
     public MapperApplication(
         ConsolePromptService promptService,
@@ -21,7 +23,8 @@ internal sealed class MapperApplication
         LinkedInNavigationService navigationService,
         LinkedInQueryService queryService,
         ProfileExtractionService profileExtractionService,
-        EmailGenerationService emailGenerationService)
+        EmailGenerationService emailGenerationService,
+        HumanDelayService humanDelayService)
     {
         _promptService = promptService;
         _sessionStateManager = sessionStateManager;
@@ -30,13 +33,16 @@ internal sealed class MapperApplication
         _queryService = queryService;
         _profileExtractionService = profileExtractionService;
         _emailGenerationService = emailGenerationService;
+        _humanDelayService = humanDelayService;
     }
 
     public async Task<int> RunAuthSetupAsync()
     {
         Log.Information("Starting auth setup mode");
         await _sessionStateManager.CaptureSessionStateAsync(_browserManager, _promptService, CancellationToken.None);
-        Console.WriteLine("LinkedIn session saved.");
+        Console.WriteLine("Session saved.");
+        Console.WriteLine("Press ENTER to exit.");
+        Console.ReadLine();
         return 0;
     }
 
@@ -72,77 +78,92 @@ internal sealed class MapperApplication
         CsvWriterService csvWriter,
         CancellationToken cancellationToken)
     {
-        await _navigationService.NavigateToCompanyPeoplePageAsync(session.Page, input, cancellationToken);
-
-        foreach (var title in input.TitleFilters)
+        using (LogContext.PushProperty("Company", input.CompanyName))
         {
-            var query = _queryService.BuildQuery(input.SearchCountry, title);
+            await _navigationService.NavigateToCompanyPeoplePageAsync(session.Page, input, cancellationToken);
 
-            try
+            foreach (var title in input.TitleFilters)
             {
-                await _queryService.SubmitQueryAsync(session.Page, query, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Query submission failure for {Query}. Continuing.", query);
-                continue;
-            }
-
-            IReadOnlyList<ContactDiscoveryTarget> targets;
-            try
-            {
-                targets = await _queryService.DiscoverContactsAsync(session.Page, query, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Discovery failure for {Query}. Continuing.", query);
-                continue;
-            }
-
-            foreach (var target in targets)
-            {
-                var profilePage = await _profileExtractionService.TryOpenProfileInNewTabAsync(
-                    session.Context,
-                    session.Page,
-                    target,
-                    cancellationToken);
-
-                if (profilePage is null)
+                var query = _queryService.BuildQuery(input.SearchCountry, title);
+                using (LogContext.PushProperty("Query", query))
                 {
-                    continue;
-                }
-
-                try
-                {
-                    var profile = await _profileExtractionService.ExtractAsync(profilePage, query, cancellationToken);
-                    var emails = _emailGenerationService.Generate(profile.FullName, input.CompanyDomain);
-
-                    var row = new MappedContactRow
+                    try
                     {
-                        CompanyName = input.CompanyName,
-                        SearchCountry = input.SearchCountry,
-                        SearchQuery = profile.SearchQuery,
-                        FullName = profile.FullName,
-                        CurrentJobTitles = profile.CurrentJobTitles,
-                        ProfileURL = profile.ProfileUrl,
-                        EmailPrimary = emails.Primary,
-                        EmailAlt1 = emails.Alt1,
-                        EmailAlt2 = emails.Alt2,
-                        EmailAlt3 = emails.Alt3,
-                        TimestampUTC = profile.TimestampUtc
-                    };
+                        await _queryService.SubmitQueryAsync(session.Page, query, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error(ex, "Query submission failure for {Query}. Continuing.", query);
+                        continue;
+                    }
 
-                    await csvWriter.WriteRowAsync(row, cancellationToken);
-                }
-                catch (Exception ex)
-                {
-                    Log.Error(ex, "Extraction failure for target {Target}", target.Href);
-                }
-                finally
-                {
-                    await profilePage.CloseAsync();
-                    await session.Page.BringToFrontAsync();
-                    await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+                    IReadOnlyList<ContactDiscoveryTarget> targets;
+                    try
+                    {
+                        targets = await _queryService.DiscoverContactsAsync(session.Page, query, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error(ex, "Discovery failure for {Query}. Continuing.", query);
+                        continue;
+                    }
+
+                    foreach (var target in targets)
+                    {
+                        using (LogContext.PushProperty("ProfileUrl", target.Href))
+                        {
+                            var profilePage = await _profileExtractionService.TryOpenProfileInNewTabAsync(
+                                session.Context,
+                                session.Page,
+                                target,
+                                cancellationToken);
+
+                            if (profilePage is null)
+                            {
+                                continue;
+                            }
+
+                            try
+                            {
+                                var profile = await _profileExtractionService.ExtractAsync(profilePage, query, cancellationToken);
+                                if (profile is null)
+                                {
+                                    continue;
+                                }
+
+                                var emails = _emailGenerationService.Generate(profile.FullName, input.CompanyDomain);
+
+                                var row = new MappedContactRow
+                                {
+                                    CompanyName = input.CompanyName,
+                                    SearchCountry = input.SearchCountry,
+                                    SearchQuery = profile.SearchQuery,
+                                    FullName = profile.FullName,
+                                    CurrentJobTitles = profile.CurrentJobTitles,
+                                    ProfileURL = profile.ProfileUrl,
+                                    EmailPrimary = emails.Primary,
+                                    EmailAlt1 = emails.Alt1,
+                                    EmailAlt2 = emails.Alt2,
+                                    EmailAlt3 = emails.Alt3,
+                                    TimestampUTC = profile.TimestampUtc
+                                };
+
+                                await csvWriter.WriteRowAsync(row, cancellationToken);
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Error(ex, "Extraction failure for target {Target}", target.Href);
+                            }
+                            finally
+                            {
+                                await profilePage.CloseAsync();
+                                await session.Page.BringToFrontAsync();
+                                await _humanDelayService.DelayAsync(1, 2, cancellationToken);
+                            }
+                        }
+                    }
+
+                    await _humanDelayService.DelayAsync(2, 4, cancellationToken);
                 }
             }
         }

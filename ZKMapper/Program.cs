@@ -18,14 +18,20 @@ internal sealed class Program
         {
             Log.Information("Application start");
 
+            var contextFactory = new PlaywrightContextFactory();
+            var humanDelayService = new HumanDelayService();
+            var retryService = new RetryService();
+            var scrollExhaustionService = new ScrollExhaustionService(humanDelayService);
+
             var app = new MapperApplication(
                 new ConsolePromptService(),
                 new SessionStateManager(),
-                new BrowserManager(),
-                new LinkedInNavigationService(new RetryService()),
-                new LinkedInQueryService(new RetryService()),
-                new ProfileExtractionService(new RetryService()),
-                new EmailGenerationService());
+                new BrowserManager(contextFactory),
+                new LinkedInNavigationService(retryService, humanDelayService),
+                new LinkedInQueryService(retryService, scrollExhaustionService, humanDelayService),
+                new ProfileExtractionService(retryService, humanDelayService),
+                new EmailGenerationService(),
+                humanDelayService);
 
             var command = args.FirstOrDefault()?.Trim().ToLowerInvariant();
             return command switch

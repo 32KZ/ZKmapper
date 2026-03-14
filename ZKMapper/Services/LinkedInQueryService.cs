@@ -7,10 +7,17 @@ namespace ZKMapper.Services;
 internal sealed class LinkedInQueryService
 {
     private readonly RetryService _retryService;
+    private readonly ScrollExhaustionService _scrollExhaustionService;
+    private readonly HumanDelayService _humanDelayService;
 
-    public LinkedInQueryService(RetryService retryService)
+    public LinkedInQueryService(
+        RetryService retryService,
+        ScrollExhaustionService scrollExhaustionService,
+        HumanDelayService humanDelayService)
     {
         _retryService = retryService;
+        _scrollExhaustionService = scrollExhaustionService;
+        _humanDelayService = humanDelayService;
     }
 
     public string BuildQuery(string country, string title)
@@ -28,7 +35,7 @@ internal sealed class LinkedInQueryService
             await searchInput.FillAsync(string.Empty);
             await searchInput.PressAsync("Control+A");
             await searchInput.PressAsync("Backspace");
-            await searchInput.TypeAsync(query, new LocatorTypeOptions { Delay = 85 });
+            await searchInput.PressSequentiallyAsync(query, new LocatorPressSequentiallyOptions { Delay = 85 });
             await searchInput.PressAsync("Enter");
             token.ThrowIfCancellationRequested();
         }, cancellationToken);
@@ -41,7 +48,7 @@ internal sealed class LinkedInQueryService
                 State = WaitForSelectorState.Visible,
                 Timeout = 15000
             });
-            await Task.Delay(TimeSpan.FromSeconds(3), token);
+            await _humanDelayService.DelayAsync(2, 4, token);
         }, cancellationToken);
 
         Log.Information("Search query executed: {Query}", query);
@@ -53,43 +60,27 @@ internal sealed class LinkedInQueryService
         CancellationToken cancellationToken)
     {
         var discovered = new Dictionary<string, ContactDiscoveryTarget>(StringComparer.OrdinalIgnoreCase);
-        var idleCycles = 0;
-        double? priorHeight = null;
 
-        while (idleCycles < 3)
+        while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var newlyAdded = await CaptureVisibleTargetsAsync(page, discovered, query, cancellationToken);
-
-            if (newlyAdded > 0)
-            {
-                Log.Information("Discovery of contacts found {Count} new targets for query {Query}", newlyAdded, query);
-                idleCycles = 0;
-                continue;
-            }
+            var countBeforePass = discovered.Count;
+            await CaptureVisibleTargetsAsync(page, discovered, query, cancellationToken);
 
             if (await TryClickShowMoreAsync(page, cancellationToken))
             {
                 Log.Information("Use of show more results for query {Query}", query);
-                idleCycles = 0;
-                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+                await _humanDelayService.DelayAsync(2, 4, cancellationToken);
                 continue;
             }
 
-            var currentHeight = await page.EvaluateAsync<double>("() => document.body.scrollHeight");
-            await page.EvaluateAsync("() => window.scrollTo(0, document.body.scrollHeight)");
-            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            await _scrollExhaustionService.ScrollToEndAsync(page, cancellationToken);
+            await CaptureVisibleTargetsAsync(page, discovered, query, cancellationToken);
 
-            if (priorHeight.HasValue && Math.Abs(priorHeight.Value - currentHeight) < 1)
+            if (discovered.Count == countBeforePass)
             {
-                idleCycles++;
+                break;
             }
-            else
-            {
-                idleCycles = 0;
-            }
-
-            priorHeight = currentHeight;
         }
 
         return discovered.Values.ToArray();
@@ -150,7 +141,7 @@ internal sealed class LinkedInQueryService
         return await _retryService.ExecuteAsync(async token =>
         {
             await button.ClickAsync();
-            await Task.Delay(TimeSpan.FromSeconds(2), token);
+            await _humanDelayService.DelayAsync(2, 4, token);
             return true;
         }, cancellationToken);
     }

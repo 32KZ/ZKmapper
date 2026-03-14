@@ -6,53 +6,55 @@ internal static class LinkedInSelectors
 
     public static readonly string[] PeopleTabCandidates =
     {
-        "a[href*='/people/']",
-        "a:has-text('People')",
-        "[data-control-name='page_member_main_nav_people_tab']"
+        "[data-control-name='page_member_main_nav_people_tab']",
+        "a[aria-label='People']",
+        "a[aria-current='page'][href*='/people/']",
+        "a[href*='/people/']"
     };
 
     public static readonly string[] PeopleSearchInputCandidates =
     {
+        "input[role='combobox'][aria-label*='Search']",
+        "input[aria-label*='Search employees']",
         "input[placeholder*='Search by title']",
-        "input[placeholder*='Search employees']",
-        "input[placeholder*='Search']",
-        "input[role='combobox']"
+        "input[placeholder*='Search employees']"
     };
 
     public static readonly string[] ResultsContainerCandidates =
     {
+        "main[role='main']",
         "main",
-        ".org-people-module",
-        ".scaffold-finite-scroll",
-        "div.org-people-profile-card__card-spacing",
-        "ul"
+        "[aria-label*='Search results']",
+        "ul[role='list']"
     };
 
     public static readonly string[] ShowMoreButtonCandidates =
     {
+        "button[aria-label*='Show more']",
+        "button[data-control-name*='show_more']",
         "button:has-text('Show more results')",
-        "button:has-text('Show more')",
-        "button[aria-label*='Show more']"
+        "button:has-text('Show more')"
     };
 
     public static readonly string[] ProfileLinkCandidates =
     {
-        "a[href*='/in/']",
-        "a[data-test-app-aware-link][href*='/in/']"
+        "a[data-test-app-aware-link][href*='/in/']",
+        "a[aria-label][href*='/in/']",
+        "a[href*='/in/']"
     };
 
     public static readonly string[] ProfileHeaderNameCandidates =
     {
         "h1",
-        ".text-heading-xlarge",
-        ".pv-text-details__left-panel h1"
+        "main h1[dir='ltr']",
+        "section h1"
     };
 
     public static readonly string[] ExperienceSectionCandidates =
     {
         "section:has(#experience)",
-        "section:has-text('Experience')",
-        "main section"
+        "section[aria-label*='Experience']",
+        "section:has-text('Experience')"
     };
 
     public static string BuildProfileLinkSelector(string href)

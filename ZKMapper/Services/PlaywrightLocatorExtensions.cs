@@ -12,7 +12,7 @@ internal static class PlaywrightLocatorExtensions
         foreach (var selector in selectors)
         {
             var locator = page.Locator(selector).First;
-            if (await locator.IsVisibleAsync(new LocatorIsVisibleOptions { Timeout = 1500 }))
+            if (await IsVisibleWithinAsync(locator))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 return locator;
@@ -30,7 +30,7 @@ internal static class PlaywrightLocatorExtensions
         foreach (var selector in selectors)
         {
             var locator = page.Locator(selector).First;
-            if (await locator.IsVisibleAsync(new LocatorIsVisibleOptions { Timeout = 1500 }))
+            if (await IsVisibleWithinAsync(locator))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 return locator;
@@ -38,5 +38,22 @@ internal static class PlaywrightLocatorExtensions
         }
 
         return null;
+    }
+
+    private static async Task<bool> IsVisibleWithinAsync(ILocator locator)
+    {
+        try
+        {
+            await locator.WaitForAsync(new LocatorWaitForOptions
+            {
+                State = WaitForSelectorState.Visible,
+                Timeout = 1500
+            });
+            return true;
+        }
+        catch (TimeoutException)
+        {
+            return false;
+        }
     }
 }
