@@ -4,3 +4,8 @@ output/
 logs/
 session/
 playwright/.auth/
+session/
+**/session/
+bin/
+obj/
+*.log

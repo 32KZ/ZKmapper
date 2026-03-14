@@ -31,12 +31,12 @@ internal sealed class RetryService
             .Build();
     }
 
-    public Task ExecuteAsync(Func<CancellationToken, Task> operation, CancellationToken cancellationToken)
+    public Task ExecuteAsync(Func<CancellationToken, Task> operation, CancellationToken cancellationToken = default)
     {
         return ExecuteInternalAsync(operation, cancellationToken);
     }
 
-    public Task<T> ExecuteAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken)
+    public Task<T> ExecuteAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken = default)
     {
         return ExecuteInternalAsync(operation, cancellationToken);
     }
@@ -49,10 +49,10 @@ internal sealed class RetryService
             await _pipeline.ExecuteAsync(
                 static async (resilienceContext, state) =>
                 {
-                    await state.operation(resilienceContext.CancellationToken);
+                    await state(resilienceContext.CancellationToken);
                 },
                 context,
-                (operation: operation));
+                operation);
         }
         finally
         {
@@ -68,10 +68,10 @@ internal sealed class RetryService
             return await _pipeline.ExecuteAsync(
                 static async (resilienceContext, state) =>
                 {
-                    return await state.operation(resilienceContext.CancellationToken);
+                    return await state(resilienceContext.CancellationToken);
                 },
                 context,
-                (operation: operation));
+                operation);
         }
         finally
         {
