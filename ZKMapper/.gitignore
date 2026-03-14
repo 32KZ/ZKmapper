@@ -1,0 +1,6 @@
+bin/
+obj/
+output/
+logs/
+session/
+playwright/.auth/
