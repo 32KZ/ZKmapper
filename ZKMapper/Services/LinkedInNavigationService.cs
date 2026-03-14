@@ -76,14 +76,32 @@ internal sealed class LinkedInNavigationService
 
     private static async Task WaitForCompanyUiReadyAsync(IPage page, CancellationToken cancellationToken)
     {
-        AppLog.Step("waiting for People tab selector", "CompanyNavigation", "wait-for-people-selector", "selector=a[href*='people']");
-        await page.WaitForSelectorAsync("a[href*='people']", new PageWaitForSelectorOptions
-        {
-            Timeout = 15000,
-            State = WaitForSelectorState.Visible
-        });
+        AppLog.Step("locating People tab", "CompanyNavigation", "wait-for-people-selector", "locator=role-link:People");
 
-        AppLog.Result("selector found", "CompanyNavigation", "wait-for-people-selector", "selector=a[href*='people']");
+        var peopleTabCandidates = page.GetByRole(AriaRole.Link, new() { Name = "People" });
+        var roleLocatorReady = await WaitForVisibleLocatorAsync(peopleTabCandidates.First, cancellationToken);
+
+        if (!roleLocatorReady)
+        {
+            AppLog.Warn("role locator failed, using fallback selector", "CompanyNavigation", "wait-for-people-selector", "fallbackSelector=a[href$='/people/']");
+            var fallbackHtml = await page.ContentAsync();
+            AppLog.Trace($"domLength={fallbackHtml.Length}", "CompanyNavigation", "wait-for-people-selector", $"domLength={fallbackHtml.Length}");
+
+            var visibleLinks = await page.GetByRole(AriaRole.Link).AllInnerTextsAsync();
+            AppLog.Trace($"visibleLinks={string.Join(",", visibleLinks)}", "CompanyNavigation", "wait-for-people-selector", $"visibleLinkCount={visibleLinks.Count}");
+
+            var fallback = page.Locator("a[href$='/people/']").First;
+            var fallbackReady = await WaitForVisibleLocatorAsync(fallback, cancellationToken);
+
+            if (!fallbackReady)
+            {
+                await PlaywrightDiagnostics.TracePageSnapshotAsync(page, "CompanyNavigation", "wait-for-people-selector", cancellationToken);
+                throw new InvalidOperationException("Unable to locate LinkedIn People tab using role-based or fallback selectors.");
+            }
+        }
+
+        var count = await peopleTabCandidates.CountAsync();
+        AppLog.Data($"peopleTabCandidates={count}", "CompanyNavigation", "wait-for-people-selector", $"peopleTabCandidates={count}");
         AppLog.Result("company page UI ready", "CompanyNavigation", "wait-for-people-selector", $"url={page.Url}");
 
         var html = await page.ContentAsync();
@@ -94,10 +112,39 @@ internal sealed class LinkedInNavigationService
     private static async Task ClickPeopleTabAsync(IPage page, CancellationToken cancellationToken)
     {
         using var timer = ExecutionTimer.Start("ClickPeopleTab");
-        AppLog.Action("clicking People tab", "CompanyNavigation", "click-people-tab", "selector=a[href*='people']");
+        AppLog.Step("locating People tab", "CompanyNavigation", "click-people-tab", "locator=role-link:People");
 
-        var peopleLink = page.Locator("a[href*='people']").First;
+        var roleLocator = page.GetByRole(AriaRole.Link, new() { Name = "People" });
+        var count = await roleLocator.CountAsync();
+        AppLog.Data($"peopleTabCandidates={count}", "CompanyNavigation", "click-people-tab", $"peopleTabCandidates={count}");
+
+        ILocator peopleLink;
+
+        if (count > 0)
+        {
+            if (count > 1)
+            {
+                AppLog.Warn("multiple People tab candidates detected, selecting first", "CompanyNavigation", "click-people-tab", $"peopleTabCandidates={count}");
+            }
+
+            peopleLink = roleLocator.First;
+        }
+        else
+        {
+            AppLog.Warn("role locator failed, using fallback selector", "CompanyNavigation", "click-people-tab", "fallbackSelector=a[href$='/people/']");
+
+            var html = await page.ContentAsync();
+            AppLog.Trace($"domLength={html.Length}", "CompanyNavigation", "click-people-tab", $"domLength={html.Length}");
+
+            var visibleLinks = await page.GetByRole(AriaRole.Link).AllInnerTextsAsync();
+            AppLog.Trace($"visibleLinks={string.Join(",", visibleLinks)}", "CompanyNavigation", "click-people-tab", $"visibleLinkCount={visibleLinks.Count}");
+
+            peopleLink = page.Locator("a[href$='/people/']").First;
+        }
+
+        AppLog.Action("clicking People tab", "CompanyNavigation", "click-people-tab", $"candidateCount={count}");
         await peopleLink.ClickAsync();
+        AppLog.Result("People tab clicked", "CompanyNavigation", "click-people-tab", $"currentUrl={page.Url}");
         await page.WaitForURLAsync("**/people/**", new PageWaitForURLOptions
         {
             Timeout = 15000,
@@ -105,7 +152,26 @@ internal sealed class LinkedInNavigationService
         });
 
         cancellationToken.ThrowIfCancellationRequested();
-        AppLog.Result("switched to People tab", "CompanyNavigation", "click-people-tab", $"currentUrl={page.Url}");
+        AppLog.Result("switched to People page", "CompanyNavigation", "click-people-tab", $"currentUrl={page.Url}");
         AppLog.Data($"currentUrl={page.Url}", "CompanyNavigation", "click-people-tab", $"currentUrl={page.Url}");
+    }
+
+    private static async Task<bool> WaitForVisibleLocatorAsync(ILocator locator, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await locator.WaitForAsync(new LocatorWaitForOptions
+            {
+                Timeout = 15000,
+                State = WaitForSelectorState.Visible
+            });
+            cancellationToken.ThrowIfCancellationRequested();
+            return true;
+        }
+        catch (TimeoutException)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return false;
+        }
     }
 }
