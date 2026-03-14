@@ -1,7 +1,7 @@
 using Microsoft.Playwright;
 using Polly;
 using Polly.Retry;
-using Serilog;
+using ZKMapper.Infrastructure;
 
 namespace ZKMapper.Services;
 
@@ -21,10 +21,11 @@ internal sealed class RetryService
                 UseJitter = true,
                 OnRetry = args =>
                 {
-                    Log.Warning(
-                        "Retry attempt {Attempt} after transient failure: {Message}",
-                        args.AttemptNumber + 1,
-                        args.Outcome.Exception?.Message ?? "Unknown failure");
+                    AppLog.Warn(
+                        $"Retry attempt {args.AttemptNumber + 1} after transient failure: {args.Outcome.Exception?.Message ?? "Unknown failure"}",
+                        "RetryOperation",
+                        "retry",
+                        $"attempt={args.AttemptNumber + 1}");
                     return default;
                 }
             })

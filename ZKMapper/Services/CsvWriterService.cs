@@ -1,6 +1,5 @@
 using System.Globalization;
 using CsvHelper;
-using Serilog;
 using ZKMapper.Infrastructure;
 using ZKMapper.Models;
 
@@ -10,9 +9,11 @@ internal sealed class CsvWriterService : IDisposable
 {
     private readonly StreamWriter _streamWriter;
     private readonly CsvWriter _csvWriter;
+    private int _rowIndex;
 
     public CsvWriterService(CompanyInput input, RunMetadata runMetadata)
     {
+        using var timer = ExecutionTimer.Start("CsvWriterInitialization");
         Directory.CreateDirectory(AppPaths.OutputDirectory);
 
         var safeName = string.Concat(input.CompanyName.Select(ch => char.IsLetterOrDigit(ch) ? ch : '_')).Trim('_');
@@ -33,20 +34,31 @@ internal sealed class CsvWriterService : IDisposable
         _streamWriter.Flush();
 
         OutputPath = outputPath;
+        AppLog.Result("CSV output file created", "CsvWriterInitialization", "create-output-file", $"path={OutputPath}");
     }
 
     public string OutputPath { get; }
 
     public async Task WriteRowAsync(MappedContactRow row, CancellationToken cancellationToken)
     {
+        using var timer = ExecutionTimer.Start("CsvWrite");
+        var nextRowIndex = _rowIndex + 1;
+        AppLog.Step("writing record", "CsvWrite", "write-row", $"filePath={OutputPath};rowIndex={nextRowIndex}");
+        AppLog.Data(
+            $"rowData fullName={row.FullName};profileUrl={row.ProfileURL}",
+            "CsvWrite",
+            "write-row",
+            $"fullName={row.FullName};profileUrl={row.ProfileURL}");
         _csvWriter.WriteRecord(row);
         _csvWriter.NextRecord();
         await _streamWriter.FlushAsync(cancellationToken);
-        Log.Information("CSV write success for {FullName} to {OutputPath}", row.FullName, OutputPath);
+        _rowIndex = nextRowIndex;
+        AppLog.Result("row written successfully", "CsvWrite", "write-row", $"filePath={OutputPath};rowIndex={_rowIndex}");
     }
 
     public void Dispose()
     {
+        AppLog.Info("disposing CSV writer", "CsvWriter", "dispose", $"outputPath={OutputPath};rows={_rowIndex}");
         _csvWriter.Dispose();
         _streamWriter.Dispose();
     }

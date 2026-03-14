@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
-using Serilog;
+using ZKMapper.Infrastructure;
 using ZKMapper.Models;
 
 namespace ZKMapper.Services;
@@ -24,10 +24,12 @@ internal sealed class ProfileExtractionService
     {
         if (string.IsNullOrWhiteSpace(target.Href))
         {
+            AppLog.Warn("Profile href is missing", "ProfileOpen", "validate-target", $"targetName={target.DisplayName}");
             return null;
         }
 
-        Log.Information("Attempting to open profile in new tab for {ProfileUrl}", target.Href);
+        using var timer = ExecutionTimer.Start("ProfileOpen");
+        AppLog.Step("opening profile tab", "ProfileOpen", "open-profile-tab", $"profileUrl={target.Href}");
 
         try
         {
@@ -38,6 +40,11 @@ internal sealed class ProfileExtractionService
             });
             var link = resultsPage.Locator(LinkedInSelectors.BuildProfileLinkSelector(target.Href ?? string.Empty)).First;
 
+            AppLog.Action(
+                "click",
+                "ProfileOpen",
+                "open-profile-tab",
+                $"selector={LinkedInSelectors.BuildProfileLinkSelector(target.Href ?? string.Empty)};profileUrl={target.Href}");
             await link.ClickAsync(new LocatorClickOptions
             {
                 Button = MouseButton.Left,
@@ -53,7 +60,7 @@ internal sealed class ProfileExtractionService
             {
                 if (!string.Equals(resultsPage.Url, originalUrl, StringComparison.OrdinalIgnoreCase))
                 {
-                    Log.Warning("Profile opened in the same tab and will be skipped: {ProfileUrl}", target.Href);
+                    AppLog.Warn("Profile opened in the same tab and will be skipped", "ProfileOpen", "open-profile-tab", $"profileUrl={target.Href};url={resultsPage.Url}");
                     await resultsPage.GoBackAsync(new PageGoBackOptions
                     {
                         WaitUntil = WaitUntilState.DOMContentLoaded,
@@ -61,19 +68,25 @@ internal sealed class ProfileExtractionService
                     });
                     await resultsPage.FirstVisibleAsync(LinkedInSelectors.ResultsContainerCandidates, cancellationToken);
                 }
+                else
+                {
+                    await PlaywrightDiagnostics.TracePageSnapshotAsync(resultsPage, "ProfileOpen", "open-profile-tab", cancellationToken);
+                }
 
                 return null;
             }
 
             await newPage.WaitForLoadStateAsync(LoadState.DOMContentLoaded);
-            await _humanDelayService.DelayAsync(2, 4, cancellationToken);
+            await PlaywrightDiagnostics.TracePageSnapshotAsync(newPage, "ProfileOpen", "open-profile-tab", cancellationToken);
+            await _humanDelayService.DelayAsync(2, 4, "allow profile tab to finish rendering", cancellationToken);
 
-            Log.Information("Profile opened in new tab: {ProfileUrl}", newPage.Url);
+            AppLog.Result("profile page loaded", "ProfileOpen", "open-profile-tab", $"profileUrl={newPage.Url}");
             return newPage;
         }
         catch (Exception ex)
         {
-            Log.Warning(ex, "Failure opening profile in a new tab for target {Target}", target.Href);
+            await PlaywrightDiagnostics.TracePageSnapshotAsync(resultsPage, "ProfileOpen", "open-profile-tab", cancellationToken);
+            AppLog.Warn(ex, $"Failure opening profile in a new tab for target {target.Href}", "ProfileOpen", "open-profile-tab", $"profileUrl={target.Href}");
             return null;
         }
     }
@@ -83,7 +96,8 @@ internal sealed class ProfileExtractionService
         string searchQuery,
         CancellationToken cancellationToken)
     {
-        Log.Information("Start of profile extraction from {ProfileUrl}", profilePage.Url);
+        using var timer = ExecutionTimer.Start("ProfileExtraction");
+        AppLog.Step("extracting profile details", "ProfileExtraction", "extract-profile", $"profileUrl={profilePage.Url}");
 
         try
         {
@@ -91,19 +105,30 @@ internal sealed class ProfileExtractionService
                 token => ExtractFullNameAsync(profilePage, token),
                 cancellationToken);
 
-            await _humanDelayService.DelayAsync(1, 2, cancellationToken);
+            AppLog.Data($"FullName={fullName}", "ProfileExtraction", "extract-full-name", $"profileUrl={profilePage.Url};FullName={fullName}");
+            await _humanDelayService.DelayAsync(1, 2, "pause between profile field extraction steps", cancellationToken);
 
             var currentTitles = await _retryService.ExecuteAsync(
                 token => ExtractCurrentRolesAsync(profilePage, token),
                 cancellationToken);
+            if (string.IsNullOrWhiteSpace(currentTitles))
+            {
+                AppLog.Warn("field not found: JobTitle", "ProfileExtraction", "extract-current-roles", $"profileUrl={profilePage.Url}");
+            }
+            else
+            {
+                AppLog.Data($"JobTitle={currentTitles}", "ProfileExtraction", "extract-current-roles", $"profileUrl={profilePage.Url};JobTitle={currentTitles}");
+            }
 
             var extracted = new ExtractedProfile(fullName, profilePage.Url, currentTitles, DateTime.UtcNow, searchQuery);
-            Log.Information("Extraction success for {FullName}", extracted.FullName);
+            AppLog.Data($"ProfileUrl={extracted.ProfileUrl}", "ProfileExtraction", "extract-profile", $"profileUrl={extracted.ProfileUrl}");
+            AppLog.Result("profile extraction complete", "ProfileExtraction", "extract-profile", $"profileUrl={extracted.ProfileUrl}");
             return extracted;
         }
         catch (Exception ex)
         {
-            Log.Warning(ex, "Profile extraction failed: {ProfileUrl}", profilePage.Url);
+            await PlaywrightDiagnostics.TracePageSnapshotAsync(profilePage, "ProfileExtraction", "extract-profile", cancellationToken);
+            AppLog.Warn(ex, $"profile extraction failed: {profilePage.Url}", "ProfileExtraction", "extract-profile", $"profileUrl={profilePage.Url};reason={ex.Message}");
             return null;
         }
     }

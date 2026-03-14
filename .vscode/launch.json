@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug ZKMapper",
+      "type": "coreclr",
+      "request": "launch",
+      "program": "${workspaceFolder}/ZKMapper/bin/Debug/net8.0/ZKMapper.dll",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    }
+  ]
+}

@@ -1,4 +1,3 @@
-using Serilog;
 using Serilog.Context;
 using ZKMapper.Infrastructure;
 using ZKMapper.Models;
@@ -15,6 +14,7 @@ internal sealed class MapperApplication
     private readonly ProfileExtractionService _profileExtractionService;
     private readonly EmailGenerationService _emailGenerationService;
     private readonly HumanDelayService _humanDelayService;
+    private readonly RunStatistics _statistics;
 
     public MapperApplication(
         ConsolePromptService promptService,
@@ -24,7 +24,8 @@ internal sealed class MapperApplication
         LinkedInQueryService queryService,
         ProfileExtractionService profileExtractionService,
         EmailGenerationService emailGenerationService,
-        HumanDelayService humanDelayService)
+        HumanDelayService humanDelayService,
+        RunStatistics statistics)
     {
         _promptService = promptService;
         _sessionStateManager = sessionStateManager;
@@ -34,40 +35,50 @@ internal sealed class MapperApplication
         _profileExtractionService = profileExtractionService;
         _emailGenerationService = emailGenerationService;
         _humanDelayService = humanDelayService;
+        _statistics = statistics;
     }
 
     public async Task<int> RunAuthSetupAsync()
     {
-        Log.Information("Starting auth setup mode");
+        using var timer = ExecutionTimer.Start("RunAuthSetup");
+        AppLog.Step("starting auth setup mode", "AuthSetup", "run-auth");
         await _sessionStateManager.CaptureSessionStateAsync(_browserManager, _promptService, CancellationToken.None);
         Console.WriteLine("Session saved.");
         Console.WriteLine("Press ENTER to exit.");
         Console.ReadLine();
+        AppLog.Result("auth setup complete", "AuthSetup", "run-auth", $"sessionPath={AppPaths.SessionStatePath}");
         return 0;
     }
 
     public async Task<int> RunCollectionAsync()
     {
+        using var timer = ExecutionTimer.Start("RunCollection");
         _sessionStateManager.EnsureSessionStateExists();
         var runMetadata = CreateRunMetadata();
 
+        AppLog.Step("starting collection run", "RunCollection", "initialize-run", $"runNumber={runMetadata.RunNumber};startedUtc={runMetadata.StartedUtc:O}");
         await using var session = await _browserManager.LaunchAsync(useSavedSession: true, CancellationToken.None);
 
         while (true)
         {
             var input = _promptService.PromptCompanyInput();
-            Log.Information("Company input accepted for {CompanyName}", input.CompanyName);
+            AppLog.Result("company input accepted", "RunCollection", "capture-input", $"companyName={input.CompanyName}");
 
             using var csvWriter = new CsvWriterService(input, runMetadata);
-            await ProcessCompanyAsync(session, input, csvWriter, CancellationToken.None);
+            AppLog.Data($"csvOutputPath={csvWriter.OutputPath}", "RunCollection", "initialize-csv-writer", $"outputPath={csvWriter.OutputPath}");
 
-            Log.Information("Company mapping completed for {CompanyName}", input.CompanyName);
+            await ProcessCompanyAsync(session, input, csvWriter, CancellationToken.None);
+            AppLog.Result("company mapping completed", "RunCollection", "process-company", $"companyName={input.CompanyName};outputPath={csvWriter.OutputPath}");
 
             if (!_promptService.PromptYesNo("Would you like to add another company to map?"))
             {
                 break;
             }
         }
+
+        AppLog.Summary(
+            "run complete",
+            $"profilesScanned={_statistics.ProfilesScanned};recordsWritten={_statistics.RecordsWritten};queriesExecuted={_statistics.QueriesExecuted}");
 
         return 0;
     }
@@ -78,37 +89,48 @@ internal sealed class MapperApplication
         CsvWriterService csvWriter,
         CancellationToken cancellationToken)
     {
+        using var timer = ExecutionTimer.Start("ProcessCompany");
+
         using (LogContext.PushProperty("Company", input.CompanyName))
         {
-            Log.Information("Next step: open company page and switch to People for {CompanyName}", input.CompanyName);
+            AppLog.Next("open company page and switch to People", "ProcessCompany", "navigate-company", $"companyName={input.CompanyName}");
             await _navigationService.NavigateToCompanyPeoplePageAsync(session.Page, input, cancellationToken);
 
-            foreach (var title in input.TitleFilters)
+            for (var titleIndex = 0; titleIndex < input.TitleFilters.Count; titleIndex++)
             {
+                var title = input.TitleFilters[titleIndex];
                 var query = _queryService.BuildQuery(input.SearchCountry, title);
+
                 using (LogContext.PushProperty("Query", query))
                 {
-                    Log.Information("Next step: submit LinkedIn people query {Query}", query);
+                    AppLog.Data(
+                        $"queryIndex={titleIndex + 1};keyword={query};queryUrl={session.Page.Url}",
+                        "ProcessCompany",
+                        "prepare-query",
+                        $"queryIndex={titleIndex + 1};keyword={query};queryUrl={session.Page.Url}");
+
                     try
                     {
+                        AppLog.Next("submit LinkedIn people query", "ProcessCompany", "submit-query", $"queryIndex={titleIndex + 1};keyword={query}");
                         await _queryService.SubmitQueryAsync(session.Page, query, cancellationToken);
+                        _statistics.IncrementQueriesExecuted();
                     }
                     catch (Exception ex)
                     {
-                        Log.Error(ex, "Query submission failure for {Query}. Continuing.", query);
+                        AppLog.Error(ex, $"Query submission failure for {query}. Continuing.", "ProcessCompany", "submit-query", $"query={query}");
                         continue;
                     }
 
                     IReadOnlyList<ContactDiscoveryTarget> targets;
                     try
                     {
-                        Log.Information("Next step: discover matching profiles for query {Query}", query);
+                        AppLog.Next("discover matching profiles", "ProcessCompany", "discover-profiles", $"query={query}");
                         targets = await _queryService.DiscoverContactsAsync(session.Page, query, cancellationToken);
-                        Log.Information("Discovery complete for query {Query}. Found {TargetCount} targets.", query, targets.Count);
+                        AppLog.Result("discovery complete", "ProcessCompany", "discover-profiles", $"query={query};targetCount={targets.Count}");
                     }
                     catch (Exception ex)
                     {
-                        Log.Error(ex, "Discovery failure for {Query}. Continuing.", query);
+                        AppLog.Error(ex, $"Discovery failure for {query}. Continuing.", "ProcessCompany", "discover-profiles", $"query={query}");
                         continue;
                     }
 
@@ -116,7 +138,7 @@ internal sealed class MapperApplication
                     {
                         using (LogContext.PushProperty("ProfileUrl", target.Href))
                         {
-                            Log.Information("Next step: open profile {ProfileUrl}", target.Href);
+                            AppLog.Next("open profile", "ProcessCompany", "open-profile", $"profileUrl={target.Href}");
                             var profilePage = await _profileExtractionService.TryOpenProfileInNewTabAsync(
                                 session.Context,
                                 session.Page,
@@ -128,9 +150,11 @@ internal sealed class MapperApplication
                                 continue;
                             }
 
+                            _statistics.IncrementProfilesScanned();
+
                             try
                             {
-                                Log.Information("Next step: extract profile details from {ProfileUrl}", target.Href);
+                                AppLog.Next("extract profile details", "ProcessCompany", "extract-profile", $"profileUrl={target.Href}");
                                 var profile = await _profileExtractionService.ExtractAsync(profilePage, query, cancellationToken);
                                 if (profile is null)
                                 {
@@ -138,7 +162,6 @@ internal sealed class MapperApplication
                                 }
 
                                 var emails = _emailGenerationService.Generate(profile.FullName, input.CompanyDomain);
-
                                 var row = new MappedContactRow
                                 {
                                     CompanyName = input.CompanyName,
@@ -154,24 +177,28 @@ internal sealed class MapperApplication
                                     TimestampUTC = profile.TimestampUtc
                                 };
 
-                                Log.Information("Next step: write mapped row for {ProfileUrl}", profile.ProfileUrl);
+                                AppLog.Next("write mapped CSV row", "ProcessCompany", "write-csv-row", $"profileUrl={profile.ProfileUrl}");
                                 await csvWriter.WriteRowAsync(row, cancellationToken);
-                                Log.Information("Mapped row written for {ProfileUrl}", profile.ProfileUrl);
+                                _statistics.IncrementRecordsWritten();
+                                AppLog.Result("mapped row written", "ProcessCompany", "write-csv-row", $"profileUrl={profile.ProfileUrl};outputPath={csvWriter.OutputPath}");
                             }
                             catch (Exception ex)
                             {
-                                Log.Error(ex, "Extraction failure for target {Target}", target.Href);
+                                AppLog.Error(ex, $"Extraction failure for target {target.Href}", "ProcessCompany", "extract-profile", $"profileUrl={target.Href}");
                             }
                             finally
                             {
+                                AppLog.Action("close", "ProcessCompany", "close-profile-tab", $"profileUrl={target.Href}");
                                 await profilePage.CloseAsync();
+                                AppLog.Action("bring-to-front", "ProcessCompany", "focus-results-page", $"companyPageUrl={session.Page.Url}");
                                 await session.Page.BringToFrontAsync();
-                                await _humanDelayService.DelayAsync(1, 2, cancellationToken);
+                                await _humanDelayService.DelayAsync(1, 2, "pause after closing profile tab and returning to results", cancellationToken);
                             }
                         }
                     }
 
-                    await _humanDelayService.DelayAsync(2, 4, cancellationToken);
+                    AppLog.Next("advance to next query if available", "ProcessCompany", "next-query", $"query={query}");
+                    await _humanDelayService.DelayAsync(2, 4, "pause between company title queries", cancellationToken);
                 }
             }
         }

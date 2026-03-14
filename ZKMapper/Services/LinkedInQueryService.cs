@@ -1,5 +1,5 @@
 using Microsoft.Playwright;
-using Serilog;
+using ZKMapper.Infrastructure;
 using ZKMapper.Models;
 
 namespace ZKMapper.Services;
@@ -27,15 +27,20 @@ internal sealed class LinkedInQueryService
 
     public async Task SubmitQueryAsync(IPage page, string query, CancellationToken cancellationToken)
     {
+        using var timer = ExecutionTimer.Start("QueryExecution");
+        AppLog.Step("executing search", "QueryExecution", "submit-query", $"keyword={query}");
         var searchInput = await page.FirstVisibleAsync(LinkedInSelectors.PeopleSearchInputCandidates, cancellationToken);
 
         await _retryService.ExecuteAsync(async token =>
         {
+            AppLog.Action("click", "QueryExecution", "focus-search-input", $"selectorCandidates={string.Join(" | ", LinkedInSelectors.PeopleSearchInputCandidates)}");
             await searchInput.ClickAsync();
             await searchInput.FillAsync(string.Empty);
             await searchInput.PressAsync("Control+A");
             await searchInput.PressAsync("Backspace");
+            AppLog.Action("type", "QueryExecution", "enter-query-text", $"query={query}");
             await searchInput.PressSequentiallyAsync(query, new LocatorPressSequentiallyOptions { Delay = 85 });
+            AppLog.Action("press-enter", "QueryExecution", "submit-query", $"query={query}");
             await searchInput.PressAsync("Enter");
             token.ThrowIfCancellationRequested();
         }, cancellationToken);
@@ -48,10 +53,12 @@ internal sealed class LinkedInQueryService
                 State = WaitForSelectorState.Visible,
                 Timeout = 15000
             });
-            await _humanDelayService.DelayAsync(2, 4, token);
+            await _humanDelayService.DelayAsync(2, 4, "allow LinkedIn people results to render after query", token);
         }, cancellationToken);
 
-        Log.Information("Search query executed: {Query}", query);
+        AppLog.Data($"queryUrl={page.Url}", "QueryExecution", "submit-query", $"query={query};queryUrl={page.Url}");
+        await PlaywrightDiagnostics.TracePageSnapshotAsync(page, "QueryExecution", "submit-query", cancellationToken);
+        AppLog.Result("search query executed", "QueryExecution", "submit-query", $"keyword={query}");
     }
 
     public async Task<IReadOnlyList<ContactDiscoveryTarget>> DiscoverContactsAsync(
@@ -59,6 +66,7 @@ internal sealed class LinkedInQueryService
         string query,
         CancellationToken cancellationToken)
     {
+        using var timer = ExecutionTimer.Start("ProfileDiscovery");
         var discovered = new Dictionary<string, ContactDiscoveryTarget>(StringComparer.OrdinalIgnoreCase);
 
         while (true)
@@ -69,8 +77,8 @@ internal sealed class LinkedInQueryService
 
             if (await TryClickShowMoreAsync(page, cancellationToken))
             {
-                Log.Information("Use of show more results for query {Query}", query);
-                await _humanDelayService.DelayAsync(2, 4, cancellationToken);
+                AppLog.Result("show more results triggered", "ProfileDiscovery", "show-more", $"query={query}");
+                await _humanDelayService.DelayAsync(2, 4, "allow additional LinkedIn search results after show more", cancellationToken);
                 continue;
             }
 
@@ -79,6 +87,7 @@ internal sealed class LinkedInQueryService
 
             if (discovered.Count == countBeforePass)
             {
+                AppLog.Result("profile discovery complete", "ProfileDiscovery", "discover-profiles", $"query={query};count={discovered.Count}");
                 break;
             }
         }
@@ -124,7 +133,11 @@ internal sealed class LinkedInQueryService
 
             discovered[absoluteHref] = new ContactDiscoveryTarget(absoluteHref, text, absoluteHref);
             added++;
-            Log.Information("Contact discovered for query {Query}: {ProfileUrl}", query, absoluteHref);
+            AppLog.Data(
+                $"found profile name={text};url={absoluteHref};position={index + 1}",
+                "ProfileDiscovery",
+                "capture-visible-targets",
+                $"query={query};profileName={text};profileUrl={absoluteHref};position={index + 1}");
         }
 
         return added;
@@ -140,8 +153,9 @@ internal sealed class LinkedInQueryService
 
         return await _retryService.ExecuteAsync(async token =>
         {
+            AppLog.Action("click", "ProfileDiscovery", "click-show-more", $"selectorCandidates={string.Join(" | ", LinkedInSelectors.ShowMoreButtonCandidates)}");
             await button.ClickAsync();
-            await _humanDelayService.DelayAsync(2, 4, token);
+            await _humanDelayService.DelayAsync(2, 4, "wait after clicking show more results", token);
             return true;
         }, cancellationToken);
     }

@@ -17,15 +17,27 @@ internal sealed class BrowserManager
 
     public async Task<PlaywrightSession> LaunchAsync(bool useSavedSession, CancellationToken cancellationToken)
     {
+        using var timer = ExecutionTimer.Start("BrowserLaunch");
+
         await EnsureChromiumInstalledAsync(cancellationToken);
 
         if (useSavedSession && !File.Exists(AppPaths.SessionStatePath))
         {
-            Log.Error(
-                "LinkedIn session state file is missing at {Path}. Run `dotnet run -- auth` before mapping.",
-                AppPaths.SessionStatePath);
+            AppLog.Error(
+                new InvalidOperationException("LinkedIn session state is missing."),
+                "LinkedIn session state file is missing. Run `dotnet run -- auth` before mapping.",
+                "BrowserLaunch",
+                "validate-session",
+                $"path={AppPaths.SessionStatePath}");
             throw new InvalidOperationException("LinkedIn session state is missing.");
         }
+
+        AppLog.Step("launching playwright browser", "BrowserLaunch", "launch-browser", $"useSavedSession={useSavedSession}");
+        AppLog.Data(
+            "browser launch configuration",
+            "BrowserLaunch",
+            "launch-options",
+            "headless=false;slowmo=50;viewport=1280x800;locale=en-GB;timezone=Europe/London");
 
         var playwright = await Playwright.CreateAsync();
         var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
@@ -44,7 +56,12 @@ internal sealed class BrowserManager
         var page = await context.NewPageAsync();
 
         cancellationToken.ThrowIfCancellationRequested();
-        Log.Information("Browser launched in headed mode. Session state enabled: {Enabled}", useSavedSession);
+        AppLog.Result("browser started", "BrowserLaunch", "launch-browser", $"sessionStateEnabled={useSavedSession}");
+        AppLog.Result(
+            useSavedSession ? "session restored successfully" : "started without saved session",
+            "BrowserLaunch",
+            "context-ready",
+            $"pageUrl={page.Url}");
 
         return new PlaywrightSession(playwright, browser, context, page);
     }
@@ -64,13 +81,14 @@ internal sealed class BrowserManager
                 return;
             }
 
-            Log.Information("Ensuring Playwright Chromium is installed");
+            AppLog.Step("ensuring Playwright Chromium is installed", "BrowserInstall", "install-browser");
             var exitCode = await Task.Run(() => Microsoft.Playwright.Program.Main(new[] { "install", "chromium" }), cancellationToken);
             if (exitCode != 0)
             {
                 throw new InvalidOperationException($"Playwright install failed with exit code {exitCode}.");
             }
 
+            AppLog.Result("Playwright Chromium install check complete", "BrowserInstall", "install-browser", $"exitCode={exitCode}");
             _playwrightInstalled = true;
         }
         finally

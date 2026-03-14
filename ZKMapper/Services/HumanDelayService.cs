@@ -1,8 +1,10 @@
+using ZKMapper.Infrastructure;
+
 namespace ZKMapper.Services;
 
 internal sealed class HumanDelayService
 {
-    public Task DelayAsync(int minSeconds, int maxSeconds, CancellationToken cancellationToken = default)
+    public Task DelayAsync(int minSeconds, int maxSeconds, string reason, CancellationToken cancellationToken = default)
     {
         if (minSeconds < 0 || maxSeconds < 0)
         {
@@ -19,6 +21,12 @@ internal sealed class HumanDelayService
         var delay = minMilliseconds == maxMilliseconds
             ? minMilliseconds
             : Random.Shared.Next(minMilliseconds, maxMilliseconds + 1);
+
+        AppLog.Wait(
+            $"sleeping {TimeSpan.FromMilliseconds(delay).TotalSeconds:F1} seconds",
+            "HumanDelay",
+            "delay",
+            $"reason={reason};delayMs={delay}");
 
         return Task.Delay(delay, cancellationToken);
     }

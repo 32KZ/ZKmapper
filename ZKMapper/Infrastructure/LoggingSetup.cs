@@ -5,18 +5,21 @@ namespace ZKMapper.Infrastructure;
 
 internal static class LoggingSetup
 {
-    public static ILogger CreateLogger()
+    public static ILogger CreateLogger(RuntimeOptions runtimeOptions)
     {
+        var minimumLevel = runtimeOptions.VerboseEnabled
+            ? LogEventLevel.Verbose
+            : LogEventLevel.Information;
+
         return new LoggerConfiguration()
-            .MinimumLevel.Debug()
+            .MinimumLevel.Is(minimumLevel)
             .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
             .Enrich.FromLogContext()
             .WriteTo.Console(
-                outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
+                outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} step={step} action={action} data={data} duration={duration}{NewLine}{Exception}")
             .WriteTo.File(
-                Path.Combine(AppPaths.LogDirectory, "zkmapper-.log"),
-                rollingInterval: RollingInterval.Day,
-                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj} Company={Company} Query={Query} ProfileUrl={ProfileUrl}{NewLine}{Exception}")
+                runtimeOptions.LogFilePath,
+                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj} step={step} action={action} data={data} duration={duration} Company={Company} Query={Query} ProfileUrl={ProfileUrl}{NewLine}{Exception}")
             .CreateLogger();
     }
 }

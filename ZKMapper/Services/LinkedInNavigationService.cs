@@ -1,5 +1,5 @@
 using Microsoft.Playwright;
-using Serilog;
+using ZKMapper.Infrastructure;
 using ZKMapper.Models;
 
 namespace ZKMapper.Services;
@@ -20,8 +20,10 @@ internal sealed class LinkedInNavigationService
         CompanyInput input,
         CancellationToken cancellationToken)
     {
-        Log.Information("Company mapping started for {CompanyName}", input.CompanyName);
-        Log.Information("Next step: navigate to company page {CompanyUrl}", input.CompanyLinkedInUrl);
+        using var timer = ExecutionTimer.Start("NavigateToCompanyPeoplePage");
+        AppLog.Step("Opening company page", "CompanyNavigation", "goto-company-page", $"url={input.CompanyLinkedInUrl}");
+        AppLog.Data($"url={input.CompanyLinkedInUrl}", "CompanyNavigation", "goto-company-page", $"company={input.CompanyName};url={input.CompanyLinkedInUrl}");
+        AppLog.Action("navigating browser", "CompanyNavigation", "goto-company-page", $"url={input.CompanyLinkedInUrl}");
 
         await _retryService.ExecuteAsync(async token =>
         {
@@ -34,22 +36,31 @@ internal sealed class LinkedInNavigationService
             token.ThrowIfCancellationRequested();
         }, cancellationToken);
 
-        Log.Information("Company page loaded for {CompanyName}. Current URL: {CompanyUrl}", input.CompanyName, page.Url);
-        await _humanDelayService.DelayAsync(2, 4, cancellationToken);
+        AppLog.Result("page loaded", "CompanyNavigation", "goto-company-page", $"company={input.CompanyName};url={page.Url}");
+        await PlaywrightDiagnostics.TracePageSnapshotAsync(page, "CompanyNavigation", "goto-company-page", cancellationToken);
+        AppLog.Next("executing people tab selection", "CompanyNavigation", "select-people-tab", $"company={input.CompanyName}");
+        await _humanDelayService.DelayAsync(2, 4, "stabilize company page before selecting People tab", cancellationToken);
 
-        Log.Information("Next step: select the People tab for {CompanyName}", input.CompanyName);
         await EnsurePeopleTabSelectedAsync(page, cancellationToken);
 
         await page.FirstVisibleAsync(LinkedInSelectors.PeopleSearchInputCandidates, cancellationToken);
-        Log.Information("Entry into People page succeeded for {CompanyName}", input.CompanyName);
-        await _humanDelayService.DelayAsync(2, 4, cancellationToken);
+        AppLog.Result("People page ready", "CompanyNavigation", "select-people-tab", $"company={input.CompanyName};url={page.Url}");
+        AppLog.Next("executing people search", "CompanyNavigation", "ready-for-query", $"company={input.CompanyName}");
+        await _humanDelayService.DelayAsync(2, 4, "stabilize People page before query execution", cancellationToken);
     }
 
     private async Task EnsurePeopleTabSelectedAsync(IPage page, CancellationToken cancellationToken)
     {
+        using var timer = ExecutionTimer.Start("EnsurePeopleTabSelected");
         await _retryService.ExecuteAsync(async token =>
         {
             var peopleTab = await page.FirstVisibleAsync(LinkedInSelectors.PeopleTabCandidates, token);
+            AppLog.Trace(
+                $"playwright selector queries={string.Join(" | ", LinkedInSelectors.PeopleTabCandidates)}",
+                "CompanyNavigation",
+                "resolve-people-tab",
+                $"candidateCount={LinkedInSelectors.PeopleTabCandidates.Length}");
+            AppLog.Action("click", "CompanyNavigation", "click-people-tab", $"selectorCandidates={string.Join(" | ", LinkedInSelectors.PeopleTabCandidates)}");
             await peopleTab.ClickAsync();
             await page.WaitForLoadStateAsync(LoadState.NetworkIdle);
 
@@ -58,9 +69,11 @@ internal sealed class LinkedInNavigationService
 
             if (!onPeoplePage)
             {
+                await PlaywrightDiagnostics.TracePageSnapshotAsync(page, "CompanyNavigation", "click-people-tab", token);
                 throw new InvalidOperationException("People tab click did not navigate to the People page.");
             }
 
+            AppLog.Result("People tab selected", "CompanyNavigation", "click-people-tab", $"url={page.Url}");
             token.ThrowIfCancellationRequested();
         }, cancellationToken);
     }
