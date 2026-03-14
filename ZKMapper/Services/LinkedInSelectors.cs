@@ -4,28 +4,6 @@ internal static class LinkedInSelectors
 {
     public const string ExperienceItemSelector = "li, div";
 
-    public static readonly string[] PeopleTabCandidates =
-    {
-        "[data-control-name='page_member_main_nav_people_tab']",
-        "a[aria-label='People']",
-        "a[aria-current='page'][href*='/people/']",
-        "a[href*='/people/']"
-    };
-
-    public static readonly string[] PeopleSearchInputCandidates =
-    {
-        "div.org-people__filters input[placeholder*='Search']",
-        "div.org-people__filters input[placeholder*='title']",
-        "div.org-people__filters input[type='text']"
-    };
-
-    public static readonly string[] PeopleFiltersContainerCandidates =
-    {
-        "div.org-people__filters",
-        "div[class*='org-people']",
-        "div[class*='search']"
-    };
-
     public static readonly string[] ResultsContainerCandidates =
     {
         "main[role='main']",
@@ -39,7 +17,8 @@ internal static class LinkedInSelectors
         "button[aria-label*='Show more']",
         "button[data-control-name*='show_more']",
         "button:has-text('Show more results')",
-        "button:has-text('Show more')"
+        "button:has-text('Show more')",
+        "button:has-text('See more results')"
     };
 
     public static readonly string[] ProfileLinkCandidates =

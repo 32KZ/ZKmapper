@@ -25,8 +25,8 @@ internal sealed class ConfigurationService
         return profile switch
         {
             DelayProfile.Navigation => new DelayRange(_settings.Delays.NavigationMinMs, _settings.Delays.NavigationMaxMs),
-            DelayProfile.Search => new DelayRange(_settings.Delays.SearchMinMs, _settings.Delays.SearchMaxMs),
-            DelayProfile.ProfileOpen => new DelayRange(_settings.Delays.ProfileOpenMinMs, _settings.Delays.ProfileOpenMaxMs),
+            DelayProfile.Scroll => new DelayRange(_settings.Delays.ScrollMinMs, _settings.Delays.ScrollMaxMs),
+            DelayProfile.Profile => new DelayRange(_settings.Delays.ProfileMinMs, _settings.Delays.ProfileMaxMs),
             _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "Unknown delay profile.")
         };
     }
@@ -41,20 +41,20 @@ internal sealed class ConfigurationService
                 _settings.Delays.NavigationMinMs = range.MinMs;
                 _settings.Delays.NavigationMaxMs = range.MaxMs;
                 break;
-            case DelayProfile.Search:
-                _settings.Delays.SearchMinMs = range.MinMs;
-                _settings.Delays.SearchMaxMs = range.MaxMs;
+            case DelayProfile.Scroll:
+                _settings.Delays.ScrollMinMs = range.MinMs;
+                _settings.Delays.ScrollMaxMs = range.MaxMs;
                 break;
-            case DelayProfile.ProfileOpen:
-                _settings.Delays.ProfileOpenMinMs = range.MinMs;
-                _settings.Delays.ProfileOpenMaxMs = range.MaxMs;
+            case DelayProfile.Profile:
+                _settings.Delays.ProfileMinMs = range.MinMs;
+                _settings.Delays.ProfileMaxMs = range.MaxMs;
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(profile), profile, "Unknown delay profile.");
         }
 
         Save();
-        AppLog.Info("[CONFIG] delay range updated", "Configuration", "update-delay-range", $"profile={profile};minMs={range.MinMs};maxMs={range.MaxMs}");
+        AppLog.Info("[CONFIG] delay updated", "Configuration", "update-delay-range", $"profile={profile};minMs={range.MinMs};maxMs={range.MaxMs}");
     }
 
     private AppSettings Load()
@@ -93,7 +93,7 @@ internal sealed class ConfigurationService
     private static void Validate(AppSettings settings)
     {
         new DelayRange(settings.Delays.NavigationMinMs, settings.Delays.NavigationMaxMs).Validate();
-        new DelayRange(settings.Delays.SearchMinMs, settings.Delays.SearchMaxMs).Validate();
-        new DelayRange(settings.Delays.ProfileOpenMinMs, settings.Delays.ProfileOpenMaxMs).Validate();
+        new DelayRange(settings.Delays.ScrollMinMs, settings.Delays.ScrollMaxMs).Validate();
+        new DelayRange(settings.Delays.ProfileMinMs, settings.Delays.ProfileMaxMs).Validate();
     }
 }

@@ -38,7 +38,7 @@ internal sealed class ScrollExhaustionService
 
             AppLog.Action("scrolling to page bottom", "ScrollExhaustion", "scroll-to-end", $"iteration={iteration};scrollDistance={height - previousHeight}");
             await page.EvaluateAsync("() => window.scrollTo(0, document.body.scrollHeight)");
-            await _humanDelayService.DelayAsync(DelayProfile.Navigation, "waiting for LinkedIn lazy-loaded results after scroll", cancellationToken);
+            await _humanDelayService.DelayAsync(DelayProfile.Scroll, "waiting for LinkedIn lazy-loaded results after scroll", cancellationToken);
             previousHeight = height;
         }
     }

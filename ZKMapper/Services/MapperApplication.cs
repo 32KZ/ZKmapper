@@ -10,6 +10,8 @@ internal sealed class MapperApplication
     private readonly SessionStateManager _sessionStateManager;
     private readonly BrowserManager _browserManager;
     private readonly LinkedInNavigationService _navigationService;
+    private readonly LinkedInCompanyResolver _companyResolver;
+    private readonly LinkedInSearchUrlBuilder _searchUrlBuilder;
     private readonly LinkedInQueryService _queryService;
     private readonly ProfileExtractionService _profileExtractionService;
     private readonly EmailGenerationService _emailGenerationService;
@@ -21,6 +23,8 @@ internal sealed class MapperApplication
         SessionStateManager sessionStateManager,
         BrowserManager browserManager,
         LinkedInNavigationService navigationService,
+        LinkedInCompanyResolver companyResolver,
+        LinkedInSearchUrlBuilder searchUrlBuilder,
         LinkedInQueryService queryService,
         ProfileExtractionService profileExtractionService,
         EmailGenerationService emailGenerationService,
@@ -31,6 +35,8 @@ internal sealed class MapperApplication
         _sessionStateManager = sessionStateManager;
         _browserManager = browserManager;
         _navigationService = navigationService;
+        _companyResolver = companyResolver;
+        _searchUrlBuilder = searchUrlBuilder;
         _queryService = queryService;
         _profileExtractionService = profileExtractionService;
         _emailGenerationService = emailGenerationService;
@@ -90,44 +96,45 @@ internal sealed class MapperApplication
 
         using (LogContext.PushProperty("Company", input.CompanyName))
         {
-            AppLog.Next("open company page and switch to People", "ProcessCompany", "navigate-company", $"companyName={input.CompanyName}");
-            await _navigationService.NavigateToCompanyPeoplePageAsync(session.Page, input, cancellationToken);
+            AppLog.Next("open company page", "ProcessCompany", "navigate-company", $"companyName={input.CompanyName}");
+            await _navigationService.NavigateToCompanyPageAsync(session.Page, input, cancellationToken);
+            var companyId = await _companyResolver.ExtractCompanyIdAsync(session.Page);
 
             for (var titleIndex = 0; titleIndex < input.TitleFilters.Count; titleIndex++)
             {
-                var title = input.TitleFilters[titleIndex];
-                var query = _queryService.BuildQuery(input.SearchCountry, title);
+                var keyword = input.TitleFilters[titleIndex].Trim();
+                var searchUrl = _searchUrlBuilder.BuildSearchUrl(companyId, keyword);
 
-                using (LogContext.PushProperty("Query", query))
+                using (LogContext.PushProperty("Query", keyword))
                 {
                     AppLog.Data(
-                        $"queryIndex={titleIndex + 1};keyword={query};queryUrl={session.Page.Url}",
+                        $"queryIndex={titleIndex + 1};keyword={keyword};searchUrl={searchUrl}",
                         "ProcessCompany",
                         "prepare-query",
-                        $"queryIndex={titleIndex + 1};keyword={query};queryUrl={session.Page.Url}");
+                        $"queryIndex={titleIndex + 1};keyword={keyword};searchUrl={searchUrl};companyId={companyId}");
 
                     try
                     {
-                        AppLog.Next("submit LinkedIn people query", "ProcessCompany", "submit-query", $"queryIndex={titleIndex + 1};keyword={query}");
-                        await _queryService.SubmitQueryAsync(session.Page, query, cancellationToken);
+                        AppLog.Next("navigate to LinkedIn people search results", "ProcessCompany", "submit-query", $"queryIndex={titleIndex + 1};keyword={keyword}");
+                        await _queryService.NavigateToSearchResultsAsync(session.Page, searchUrl, keyword, cancellationToken);
                         _statistics.IncrementQueriesExecuted();
                     }
                     catch (Exception ex)
                     {
-                        AppLog.Error(ex, $"Query submission failure for {query}. Continuing.", "ProcessCompany", "submit-query", $"query={query}");
+                        AppLog.Error(ex, $"Search navigation failure for {keyword}. Continuing.", "ProcessCompany", "submit-query", $"keyword={keyword};searchUrl={searchUrl}");
                         continue;
                     }
 
                     IReadOnlyList<ContactDiscoveryTarget> targets;
                     try
                     {
-                        AppLog.Next("discover matching profiles", "ProcessCompany", "discover-profiles", $"query={query}");
-                        targets = await _queryService.DiscoverContactsAsync(session.Page, query, cancellationToken);
-                        AppLog.Result("discovery complete", "ProcessCompany", "discover-profiles", $"query={query};targetCount={targets.Count}");
+                        AppLog.Next("discover matching profiles", "ProcessCompany", "discover-profiles", $"query={keyword}");
+                        targets = await _queryService.DiscoverContactsAsync(session.Page, keyword, cancellationToken);
+                        AppLog.Result("discovery complete", "ProcessCompany", "discover-profiles", $"query={keyword};targetCount={targets.Count}");
                     }
                     catch (Exception ex)
                     {
-                        AppLog.Error(ex, $"Discovery failure for {query}. Continuing.", "ProcessCompany", "discover-profiles", $"query={query}");
+                        AppLog.Error(ex, $"Discovery failure for {keyword}. Continuing.", "ProcessCompany", "discover-profiles", $"query={keyword}");
                         continue;
                     }
 
@@ -152,7 +159,7 @@ internal sealed class MapperApplication
                             try
                             {
                                 AppLog.Next("extract profile details", "ProcessCompany", "extract-profile", $"profileUrl={target.Href}");
-                                var profile = await _profileExtractionService.ExtractAsync(profilePage, query, cancellationToken);
+                                var profile = await _profileExtractionService.ExtractAsync(profilePage, keyword, cancellationToken);
                                 if (profile is null)
                                 {
                                     continue;
@@ -194,7 +201,7 @@ internal sealed class MapperApplication
                         }
                     }
 
-                    AppLog.Next("advance to next query if available", "ProcessCompany", "next-query", $"query={query}");
+                    AppLog.Next("advance to next query if available", "ProcessCompany", "next-query", $"query={keyword}");
                     await _humanDelayService.DelayAsync(DelayProfile.Navigation, "pause between company title queries", cancellationToken);
                 }
             }

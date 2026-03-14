@@ -41,6 +41,8 @@ internal sealed class Program
                 new SessionStateManager(),
                 new BrowserManager(contextFactory),
                 new LinkedInNavigationService(retryService, humanDelayService),
+                new LinkedInCompanyResolver(),
+                new LinkedInSearchUrlBuilder(),
                 new LinkedInQueryService(retryService, scrollExhaustionService, humanDelayService),
                 new ProfileExtractionService(retryService, humanDelayService),
                 new EmailGenerationService(),

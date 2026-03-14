@@ -25,7 +25,7 @@ internal sealed class MenuService
         {
             Console.WriteLine("==== ZKMapper ====");
             Console.WriteLine("1 Start Mapping");
-            Console.WriteLine("2 Manage CSVs");
+            Console.WriteLine("2 Manage CSV Files");
             Console.WriteLine("3 Options");
             Console.WriteLine("4 Exit");
 
@@ -66,7 +66,7 @@ internal sealed class MenuService
             var input = _promptService.PromptCompanyInput();
             queue.Add(input);
             AppLog.Info("[QUEUE] company added", "Menu", "start-mapping", $"companyName={input.CompanyName}");
-            AppLog.Info($"[QUEUE] total companies queued={queue.Count}", "Menu", "start-mapping", $"queueCount={queue.Count}");
+            AppLog.Data($"queueSize={queue.Count}", "Menu", "start-mapping", $"queueSize={queue.Count}");
 
             if (!_promptService.PromptYesNo("Add another company?"))
             {
@@ -74,7 +74,7 @@ internal sealed class MenuService
             }
         }
 
-        AppLog.Result("mapping queue ready", "Menu", "start-mapping", $"queueCount={queue.Count}");
+        AppLog.Info("[QUEUE] starting company mapping", "Menu", "start-mapping", $"queueCount={queue.Count}");
         Console.WriteLine("Processing queue...");
         await _mapperApplication.RunCollectionAsync(queue);
     }
@@ -89,7 +89,7 @@ internal sealed class MenuService
                 .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
-            AppLog.Info("[CSV] listing stored files", "Menu", "manage-csv", $"fileCount={files.Length}");
+            AppLog.Info("[CSV] listing CSV files", "Menu", "manage-csv", $"fileCount={files.Length}");
             Console.WriteLine("Stored CSV files:");
 
             if (files.Length == 0)
@@ -144,12 +144,12 @@ internal sealed class MenuService
         while (true)
         {
             var navigation = _configurationService.GetDelayRange(DelayProfile.Navigation);
-            var search = _configurationService.GetDelayRange(DelayProfile.Search);
-            var profile = _configurationService.GetDelayRange(DelayProfile.ProfileOpen);
+            var scroll = _configurationService.GetDelayRange(DelayProfile.Scroll);
+            var profile = _configurationService.GetDelayRange(DelayProfile.Profile);
 
             Console.WriteLine("Options");
             Console.WriteLine($"1 Navigation Delay ({navigation.MinMs}-{navigation.MaxMs} ms)");
-            Console.WriteLine($"2 Search Delay ({search.MinMs}-{search.MaxMs} ms)");
+            Console.WriteLine($"2 Scroll Delay ({scroll.MinMs}-{scroll.MaxMs} ms)");
             Console.WriteLine($"3 Profile Delay ({profile.MinMs}-{profile.MaxMs} ms)");
             Console.WriteLine("4 Back");
 
@@ -160,10 +160,10 @@ internal sealed class MenuService
                     UpdateDelayRange(DelayProfile.Navigation, "Navigation Delay");
                     break;
                 case "2":
-                    UpdateDelayRange(DelayProfile.Search, "Search Delay");
+                    UpdateDelayRange(DelayProfile.Scroll, "Scroll Delay");
                     break;
                 case "3":
-                    UpdateDelayRange(DelayProfile.ProfileOpen, "Profile Delay");
+                    UpdateDelayRange(DelayProfile.Profile, "Profile Delay");
                     break;
                 case "4":
                     return;
