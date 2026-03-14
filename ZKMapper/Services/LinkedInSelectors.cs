@@ -14,33 +14,36 @@ internal static class LinkedInSelectors
 
     public static readonly string[] HeroCardContainerCandidates =
     {
-        "main ul[role='list']",
-        "section ul[role='list']",
-        "div.org-people__profile-cards-container ul[role='list']",
-        "div.scaffold-finite-scroll__content ul[role='list']"
+        "section:has(div.org-people-profile-card)",
+        "section:has(li.org-people-profiles-module__profile-item)",
+        "main",
+        "ul[role='list']"
     };
 
     public static readonly string[] HeroCardCandidates =
     {
-        "li.org-people-profile-card",
-        "li.artdeco-list__item",
-        "li.reusable-search__result-container",
-        "li"
+        "div.org-people-profile-card",
+        "li.org-people-profiles-module__profile-item",
+        "li:has(a[href*='/in/'])"
     };
 
     public static readonly string[] HeroCardNameCandidates =
     {
-        "[data-anonymize='person-name']",
-        ".org-people-profile-card__profile-title",
-        "a[data-test-app-aware-link][href*='/in/'] span[aria-hidden='true']",
-        "a[data-test-app-aware-link][href*='/in/'] div[dir='ltr']",
         "a[href*='/in/'] span[aria-hidden='true']",
+        "a[href*='/in/'] div[dir='ltr']",
+        "a[href*='/in/'] span",
         "a[href*='/in/']"
     };
 
     public static readonly string[] HeroCardLinkCandidates =
     {
+        "a[href*='/in/']"
+    };
+
+    public static readonly string[] ProfileLinkCandidates =
+    {
         "a[data-test-app-aware-link][href*='/in/']",
+        "a[aria-label][href*='/in/']",
         "a[href*='/in/']"
     };
 

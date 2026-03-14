@@ -99,51 +99,90 @@ internal sealed class LinkedInQueryService
         string query,
         CancellationToken cancellationToken)
     {
-        var container = await FindHeroCardContainerAsync(page, cancellationToken);
-        if (container is null)
+        cancellationToken.ThrowIfCancellationRequested();
+
+        ILocator? scope = null;
+        var scopeSource = "none";
+
+        scope = await page.FirstVisibleOrNullAsync(
+            LinkedInSelectors.HeroCardContainerCandidates,
+            cancellationToken);
+
+        if (scope is not null)
         {
-            AppLog.Data(
-                "heroCardCount=0",
-                "ProfileDiscovery",
-                "capture-visible-targets",
-                $"query={query};reason=hero-card-container-not-found");
-            return 0;
+            scopeSource = "hero-card-container";
+        }
+        else
+        {
+            scope = await page.FirstVisibleOrNullAsync(
+                LinkedInSelectors.ResultsContainerCandidates,
+                cancellationToken);
+
+            if (scope is not null)
+            {
+                scopeSource = "results-container";
+            }
+            else
+            {
+                var mainLocator = page.Locator("main").First;
+                if (await mainLocator.CountAsync() > 0)
+                {
+                    scope = mainLocator;
+                    scopeSource = "main";
+                }
+                else
+                {
+                    scope = page.Locator("body").First;
+                    scopeSource = "body";
+                }
+            }
         }
 
-        var cardSelector = await ResolveHeroCardSelectorAsync(container, cancellationToken);
-        if (cardSelector is null)
-        {
-            AppLog.Data(
-                "heroCardCount=0",
-                "ProfileDiscovery",
-                "capture-visible-targets",
-                $"query={query};reason=hero-card-selector-not-found");
-            return 0;
-        }
+        AppLog.Data(
+            $"hero-card-scope={scopeSource}",
+            "ProfileDiscovery",
+            "capture-visible-targets",
+            $"query={query};scope={scopeSource}");
 
-        var cards = container.Locator(cardSelector);
+        var cards = scope.Locator(string.Join(", ", LinkedInSelectors.HeroCardCandidates));
         var count = await cards.CountAsync();
-        AppLog.Data($"heroCardCount={count}", "ProfileDiscovery", "capture-visible-targets", $"query={query};heroCardCount={count};cardSelector={cardSelector}");
+        AppLog.Data(
+            $"heroCardCount={count}",
+            "ProfileDiscovery",
+            "capture-visible-targets",
+            $"query={query};scope={scopeSource}");
+
         var added = 0;
+        var skippedAnonymous = 0;
+        var skippedBlank = 0;
+        var skippedMissingHref = 0;
+        var skippedDuplicate = 0;
 
         for (var index = 0; index < count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var card = cards.Nth(index);
-            if (!await card.IsVisibleAsync())
+            var position = index + 1;
+            var displayName = await ExtractCardNameAsync(card, cancellationToken);
+            if (string.IsNullOrWhiteSpace(displayName))
             {
+                skippedBlank++;
+                AppLog.Data(
+                    $"skipped hero card due to blank name;position={position}",
+                    "ProfileDiscovery",
+                    "capture-visible-targets",
+                    $"query={query};position={position};reason=blank-name");
                 continue;
             }
 
-            var position = index + 1;
-            var visibleName = await ExtractCardNameAsync(card, cancellationToken);
-            if (string.IsNullOrWhiteSpace(visibleName) || string.Equals(visibleName, "LinkedIn Member", StringComparison.OrdinalIgnoreCase))
+            if (displayName.Equals("LinkedIn Member", StringComparison.OrdinalIgnoreCase))
             {
+                skippedAnonymous++;
                 AppLog.Data(
                     $"skipped hero card due to anonymous name;position={position}",
                     "ProfileDiscovery",
                     "capture-visible-targets",
-                    $"query={query};position={position}");
+                    $"query={query};position={position};reason=linkedin-member");
                 continue;
             }
 
@@ -151,11 +190,12 @@ internal sealed class LinkedInQueryService
 
             if (string.IsNullOrWhiteSpace(href))
             {
+                skippedMissingHref++;
                 AppLog.Data(
                     $"skipped hero card due to missing href;position={position}",
                     "ProfileDiscovery",
                     "capture-visible-targets",
-                    $"query={query};position={position};profileName={visibleName}");
+                    $"query={query};position={position};reason=missing-href");
                 continue;
             }
 
@@ -165,59 +205,37 @@ internal sealed class LinkedInQueryService
 
             if (!absoluteHref.Contains("/in/", StringComparison.OrdinalIgnoreCase))
             {
+                skippedMissingHref++;
+                AppLog.Data(
+                    $"skipped hero card due to non-profile href;position={position}",
+                    "ProfileDiscovery",
+                    "capture-visible-targets",
+                    $"query={query};position={position};reason=non-profile-href;href={absoluteHref}");
                 continue;
             }
 
             if (discovered.ContainsKey(absoluteHref))
             {
+                skippedDuplicate++;
                 continue;
             }
 
-            discovered[absoluteHref] = new ContactDiscoveryTarget(absoluteHref, visibleName, absoluteHref);
+            discovered[absoluteHref] = new ContactDiscoveryTarget(absoluteHref, displayName, absoluteHref);
             added++;
             AppLog.Data(
-                $"added hero card target;name={visibleName};url={absoluteHref}",
+                $"added hero card target;name={displayName};url={absoluteHref};position={position}",
                 "ProfileDiscovery",
                 "capture-visible-targets",
-                $"query={query};profileName={visibleName};profileUrl={absoluteHref};position={position}");
+                $"query={query};profileName={displayName};profileUrl={absoluteHref};position={position}");
         }
+
+        AppLog.Data(
+            $"hero-card-summary added={added};skippedAnonymous={skippedAnonymous};skippedBlank={skippedBlank};skippedMissingHref={skippedMissingHref};skippedDuplicate={skippedDuplicate}",
+            "ProfileDiscovery",
+            "capture-visible-targets",
+            $"query={query};scope={scopeSource};added={added};skippedAnonymous={skippedAnonymous};skippedBlank={skippedBlank};skippedMissingHref={skippedMissingHref};skippedDuplicate={skippedDuplicate}");
 
         return added;
-    }
-
-    private static async Task<ILocator?> FindHeroCardContainerAsync(IPage page, CancellationToken cancellationToken)
-    {
-        foreach (var selector in LinkedInSelectors.HeroCardContainerCandidates)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var candidate = page.Locator(selector).First;
-            if (await candidate.IsVisibleAsync())
-            {
-                AppLog.Data(
-                    $"heroCardContainerSelector={selector}",
-                    "ProfileDiscovery",
-                    "capture-visible-targets",
-                    $"heroCardContainerSelector={selector}");
-                return candidate;
-            }
-        }
-
-        return null;
-    }
-
-    private static async Task<string?> ResolveHeroCardSelectorAsync(ILocator container, CancellationToken cancellationToken)
-    {
-        foreach (var selector in LinkedInSelectors.HeroCardCandidates)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var count = await container.Locator(selector).CountAsync();
-            if (count > 0)
-            {
-                return selector;
-            }
-        }
-
-        return null;
     }
 
     private static async Task<string?> ExtractCardNameAsync(ILocator card, CancellationToken cancellationToken)
@@ -226,7 +244,7 @@ internal sealed class LinkedInQueryService
         {
             cancellationToken.ThrowIfCancellationRequested();
             var locator = card.Locator(selector).First;
-            if (!await locator.IsVisibleAsync())
+            if (await card.Locator(selector).CountAsync() == 0)
             {
                 continue;
             }
@@ -247,8 +265,7 @@ internal sealed class LinkedInQueryService
         {
             cancellationToken.ThrowIfCancellationRequested();
             var locator = card.Locator(selector).First;
-            var count = await card.Locator(selector).CountAsync();
-            if (count == 0)
+            if (await card.Locator(selector).CountAsync() == 0)
             {
                 continue;
             }
