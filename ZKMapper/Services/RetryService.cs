@@ -33,11 +33,49 @@ internal sealed class RetryService
 
     public Task ExecuteAsync(Func<CancellationToken, Task> operation, CancellationToken cancellationToken)
     {
-        return _pipeline.ExecuteAsync(operation, cancellationToken);
+        return ExecuteInternalAsync(operation, cancellationToken);
     }
 
     public Task<T> ExecuteAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken)
     {
-        return _pipeline.ExecuteAsync(operation, cancellationToken);
+        return ExecuteInternalAsync(operation, cancellationToken);
+    }
+
+    private async Task ExecuteInternalAsync(Func<CancellationToken, Task> operation, CancellationToken cancellationToken)
+    {
+        var context = ResilienceContextPool.Shared.Get(cancellationToken);
+        try
+        {
+            await _pipeline.ExecuteAsync(
+                static async (resilienceContext, state) =>
+                {
+                    await state.operation(resilienceContext.CancellationToken);
+                },
+                context,
+                (operation: operation));
+        }
+        finally
+        {
+            ResilienceContextPool.Shared.Return(context);
+        }
+    }
+
+    private async Task<T> ExecuteInternalAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken)
+    {
+        var context = ResilienceContextPool.Shared.Get(cancellationToken);
+        try
+        {
+            return await _pipeline.ExecuteAsync(
+                static async (resilienceContext, state) =>
+                {
+                    return await state.operation(resilienceContext.CancellationToken);
+                },
+                context,
+                (operation: operation));
+        }
+        finally
+        {
+            ResilienceContextPool.Shared.Return(context);
+        }
     }
 }
