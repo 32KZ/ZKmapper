@@ -13,9 +13,13 @@ internal sealed class LinkedInQueryService
         _retryService = retryService;
     }
 
+    public string BuildQuery(string country, string title)
+    {
+        return $"{country.Trim()} {title.Trim()}".Trim();
+    }
+
     public async Task SubmitQueryAsync(IPage page, string query, CancellationToken cancellationToken)
     {
-        Log.Information("Constructed query {Query}", query);
         var searchInput = await page.FirstVisibleAsync(LinkedInSelectors.PeopleSearchInputCandidates, cancellationToken);
 
         await _retryService.ExecuteAsync(async token =>
@@ -40,7 +44,7 @@ internal sealed class LinkedInQueryService
             await Task.Delay(TimeSpan.FromSeconds(3), token);
         }, cancellationToken);
 
-        Log.Information("Query submission success for {Query}", query);
+        Log.Information("Search query executed: {Query}", query);
     }
 
     public async Task<IReadOnlyList<ContactDiscoveryTarget>> DiscoverContactsAsync(
@@ -55,7 +59,7 @@ internal sealed class LinkedInQueryService
         while (idleCycles < 3)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var newlyAdded = await CaptureVisibleTargetsAsync(page, discovered, cancellationToken);
+            var newlyAdded = await CaptureVisibleTargetsAsync(page, discovered, query, cancellationToken);
 
             if (newlyAdded > 0)
             {
@@ -73,7 +77,7 @@ internal sealed class LinkedInQueryService
             }
 
             var currentHeight = await page.EvaluateAsync<double>("() => document.body.scrollHeight");
-            await page.Mouse.WheelAsync(0, 1600);
+            await page.EvaluateAsync("() => window.scrollTo(0, document.body.scrollHeight)");
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
 
             if (priorHeight.HasValue && Math.Abs(priorHeight.Value - currentHeight) < 1)
@@ -94,6 +98,7 @@ internal sealed class LinkedInQueryService
     private static async Task<int> CaptureVisibleTargetsAsync(
         IPage page,
         IDictionary<string, ContactDiscoveryTarget> discovered,
+        string query,
         CancellationToken cancellationToken)
     {
         var links = page.Locator(string.Join(", ", LinkedInSelectors.ProfileLinkCandidates));
@@ -128,6 +133,7 @@ internal sealed class LinkedInQueryService
 
             discovered[absoluteHref] = new ContactDiscoveryTarget(absoluteHref, text, absoluteHref);
             added++;
+            Log.Information("Contact discovered for query {Query}: {ProfileUrl}", query, absoluteHref);
         }
 
         return added;

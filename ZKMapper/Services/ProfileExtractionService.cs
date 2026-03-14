@@ -25,26 +25,47 @@ internal sealed class ProfileExtractionService
             return null;
         }
 
-        Log.Information("Attempt to open a profile in a new tab for {ProfileUrl}", target.Href);
+        Log.Information("Attempting to open profile in new tab for {ProfileUrl}", target.Href);
 
         try
         {
+            var originalUrl = resultsPage.Url;
             var pageTask = context.WaitForPageAsync(new BrowserContextWaitForPageOptions
             {
                 Timeout = 5000
             });
 
-            await resultsPage.Locator($"a[href='{target.Href}']").First.ClickAsync(new LocatorClickOptions
+            await resultsPage.Locator(LinkedInSelectors.BuildProfileLinkSelector(target.Href ?? string.Empty)).First.ClickAsync(new LocatorClickOptions
             {
                 Button = MouseButton.Left,
                 Modifiers = new[] { KeyboardModifier.Control }
             });
 
-            var newPage = await pageTask;
+            IPage newPage;
+            try
+            {
+                newPage = await pageTask;
+            }
+            catch (TimeoutException)
+            {
+                if (!string.Equals(resultsPage.Url, originalUrl, StringComparison.OrdinalIgnoreCase))
+                {
+                    Log.Warning("Profile opened in the same tab and will be skipped: {ProfileUrl}", target.Href);
+                    await resultsPage.GoBackAsync(new PageGoBackOptions
+                    {
+                        WaitUntil = WaitUntilState.DOMContentLoaded,
+                        Timeout = 15000
+                    });
+                    await resultsPage.FirstVisibleAsync(LinkedInSelectors.ResultsContainerCandidates, cancellationToken);
+                }
+
+                return null;
+            }
+
             await newPage.WaitForLoadStateAsync(LoadState.DOMContentLoaded);
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
 
-            Log.Information("Success opening profile in a new tab: {ProfileUrl}", newPage.Url);
+            Log.Information("Profile opened in new tab: {ProfileUrl}", newPage.Url);
             return newPage;
         }
         catch (Exception ex)
@@ -54,7 +75,10 @@ internal sealed class ProfileExtractionService
         }
     }
 
-    public async Task<ExtractedProfile> ExtractAsync(IPage profilePage, CancellationToken cancellationToken)
+    public async Task<ExtractedProfile> ExtractAsync(
+        IPage profilePage,
+        string searchQuery,
+        CancellationToken cancellationToken)
     {
         Log.Information("Start of profile extraction from {ProfileUrl}", profilePage.Url);
 
@@ -66,8 +90,8 @@ internal sealed class ProfileExtractionService
             token => ExtractCurrentRolesAsync(profilePage, token),
             cancellationToken);
 
-        var extracted = new ExtractedProfile(fullName, profilePage.Url, currentTitles);
-        Log.Information("Successful extraction for {FullName}", extracted.FullName);
+        var extracted = new ExtractedProfile(fullName, profilePage.Url, currentTitles, DateTime.UtcNow, searchQuery);
+        Log.Information("Extraction success for {FullName}", extracted.FullName);
         return extracted;
     }
 
@@ -86,7 +110,7 @@ internal sealed class ProfileExtractionService
             return string.Empty;
         }
 
-        var itemTexts = await section.Locator("li, div").AllInnerTextsAsync();
+        var itemTexts = await section.Locator(LinkedInSelectors.ExperienceItemSelector).AllInnerTextsAsync();
         var currentRoles = itemTexts
             .Select(CleanText)
             .Where(text => !string.IsNullOrWhiteSpace(text))

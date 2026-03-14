@@ -10,10 +10,11 @@ internal sealed class ConsolePromptService
         var companyDomain = PromptRequired("Company email domain");
         var companyLinkedInUrl = PromptRequired("Company LinkedIn URL");
         var searchCountry = PromptRequired("Country filter");
-        var rawTitles = PromptRequired("Job title filters (comma-separated)");
+        var rawTitles = PromptRequired("Job title filters (comma separated)");
 
         var titleFilters = rawTitles
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Split(",")
+            .Select(title => title.Trim())
             .Where(title => !string.IsNullOrWhiteSpace(title))
             .ToArray();
 

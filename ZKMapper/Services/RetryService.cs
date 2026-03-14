@@ -1,3 +1,4 @@
+using Microsoft.Playwright;
 using Polly;
 using Polly.Retry;
 using Serilog;
@@ -13,6 +14,7 @@ internal sealed class RetryService
         _pipeline = new ResiliencePipelineBuilder()
             .AddRetry(new RetryStrategyOptions
             {
+                ShouldHandle = new PredicateBuilder().Handle<PlaywrightException>().Handle<TimeoutException>(),
                 MaxRetryAttempts = 3,
                 Delay = TimeSpan.FromSeconds(2),
                 BackoffType = DelayBackoffType.Linear,

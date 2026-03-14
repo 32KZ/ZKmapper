@@ -18,6 +18,7 @@ internal sealed class LinkedInNavigationService
         CompanyInput input,
         CancellationToken cancellationToken)
     {
+        Log.Information("Company mapping started for {CompanyName}", input.CompanyName);
         Log.Information("Navigating to company page {CompanyUrl}", input.CompanyLinkedInUrl);
 
         await _retryService.ExecuteAsync(async token =>
@@ -41,6 +42,7 @@ internal sealed class LinkedInNavigationService
             token.ThrowIfCancellationRequested();
         }, cancellationToken);
 
+        await page.FirstVisibleAsync(LinkedInSelectors.PeopleSearchInputCandidates, cancellationToken);
         Log.Information("Entry into People page succeeded for {CompanyName}", input.CompanyName);
         await Task.Delay(TimeSpan.FromSeconds(2.5), cancellationToken);
     }

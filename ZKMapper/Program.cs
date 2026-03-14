@@ -16,7 +16,7 @@ internal sealed class Program
 
         try
         {
-            Log.Information("Starting ZKMapper run");
+            Log.Information("Application start");
 
             var app = new MapperApplication(
                 new ConsolePromptService(),

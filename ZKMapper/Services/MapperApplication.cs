@@ -35,14 +35,7 @@ internal sealed class MapperApplication
     public async Task<int> RunAuthSetupAsync()
     {
         Log.Information("Starting auth setup mode");
-
-        await using var session = await _browserManager.LaunchAsync(useSavedSession: false, CancellationToken.None);
-        await session.Page.GotoAsync("https://www.linkedin.com/login");
-
-        _promptService.WaitForEnter(
-            "Sign in to LinkedIn in the opened browser window, then press Enter here to save the session.");
-
-        await _sessionStateManager.SaveStorageStateAsync(session.Context, CancellationToken.None);
+        await _sessionStateManager.CaptureSessionStateAsync(_browserManager, _promptService, CancellationToken.None);
         Console.WriteLine("LinkedIn session saved.");
         return 0;
     }
@@ -62,10 +55,9 @@ internal sealed class MapperApplication
             using var csvWriter = new CsvWriterService(input, runMetadata);
             await ProcessCompanyAsync(session, input, csvWriter, CancellationToken.None);
 
-            Log.Information("End of company processing for {CompanyName}", input.CompanyName);
-            Log.Information("Prompt for next company");
+            Log.Information("Company mapping completed for {CompanyName}", input.CompanyName);
 
-            if (!_promptService.PromptYesNo("Add another company to map in this run?"))
+            if (!_promptService.PromptYesNo("Would you like to add another company to map?"))
             {
                 break;
             }
@@ -84,7 +76,7 @@ internal sealed class MapperApplication
 
         foreach (var title in input.TitleFilters)
         {
-            var query = $"{input.SearchCountry} {title}";
+            var query = _queryService.BuildQuery(input.SearchCountry, title);
 
             try
             {
@@ -122,14 +114,14 @@ internal sealed class MapperApplication
 
                 try
                 {
-                    var profile = await _profileExtractionService.ExtractAsync(profilePage, cancellationToken);
+                    var profile = await _profileExtractionService.ExtractAsync(profilePage, query, cancellationToken);
                     var emails = _emailGenerationService.Generate(profile.FullName, input.CompanyDomain);
 
                     var row = new MappedContactRow
                     {
                         CompanyName = input.CompanyName,
                         SearchCountry = input.SearchCountry,
-                        SearchQuery = query,
+                        SearchQuery = profile.SearchQuery,
                         FullName = profile.FullName,
                         CurrentJobTitles = profile.CurrentJobTitles,
                         ProfileURL = profile.ProfileUrl,
@@ -137,14 +129,14 @@ internal sealed class MapperApplication
                         EmailAlt1 = emails.Alt1,
                         EmailAlt2 = emails.Alt2,
                         EmailAlt3 = emails.Alt3,
-                        TimestampUTC = DateTime.UtcNow
+                        TimestampUTC = profile.TimestampUtc
                     };
 
                     await csvWriter.WriteRowAsync(row, cancellationToken);
                 }
                 catch (Exception ex)
                 {
-                    Log.Error(ex, "Profile extraction failure for target {Target}", target.Href);
+                    Log.Error(ex, "Extraction failure for target {Target}", target.Href);
                 }
                 finally
                 {
@@ -171,7 +163,7 @@ internal sealed class MapperApplication
     private static int GetRunNumber(string path)
     {
         var name = Path.GetFileNameWithoutExtension(path);
-        var markerIndex = name.IndexOf("_run", StringComparison.OrdinalIgnoreCase);
+        var markerIndex = name.IndexOf("_Run", StringComparison.OrdinalIgnoreCase);
         if (markerIndex < 0)
         {
             return 0;

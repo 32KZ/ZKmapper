@@ -2,7 +2,7 @@ namespace ZKMapper.Infrastructure;
 
 internal static class AppPaths
 {
-    public static string RootDirectory => AppContext.BaseDirectory;
+    public static string RootDirectory => Directory.GetCurrentDirectory();
 
     public static string OutputDirectory => Path.Combine(RootDirectory, "output");
 
