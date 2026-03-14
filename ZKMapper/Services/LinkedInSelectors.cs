@@ -12,6 +12,38 @@ internal static class LinkedInSelectors
         "ul[role='list']"
     };
 
+    public static readonly string[] HeroCardContainerCandidates =
+    {
+        "main ul[role='list']",
+        "section ul[role='list']",
+        "div.org-people__profile-cards-container ul[role='list']",
+        "div.scaffold-finite-scroll__content ul[role='list']"
+    };
+
+    public static readonly string[] HeroCardCandidates =
+    {
+        "li.org-people-profile-card",
+        "li.artdeco-list__item",
+        "li.reusable-search__result-container",
+        "li"
+    };
+
+    public static readonly string[] HeroCardNameCandidates =
+    {
+        "[data-anonymize='person-name']",
+        ".org-people-profile-card__profile-title",
+        "a[data-test-app-aware-link][href*='/in/'] span[aria-hidden='true']",
+        "a[data-test-app-aware-link][href*='/in/'] div[dir='ltr']",
+        "a[href*='/in/'] span[aria-hidden='true']",
+        "a[href*='/in/']"
+    };
+
+    public static readonly string[] HeroCardLinkCandidates =
+    {
+        "a[data-test-app-aware-link][href*='/in/']",
+        "a[href*='/in/']"
+    };
+
     public static readonly string[] ShowMoreButtonCandidates =
     {
         "button[aria-label*='Show more']",
@@ -19,13 +51,6 @@ internal static class LinkedInSelectors
         "button:has-text('Show more results')",
         "button:has-text('Show more')",
         "button:has-text('See more results')"
-    };
-
-    public static readonly string[] ProfileLinkCandidates =
-    {
-        "a[data-test-app-aware-link][href*='/in/']",
-        "a[aria-label][href*='/in/']",
-        "a[href*='/in/']"
     };
 
     public static readonly string[] ProfileHeaderNameCandidates =

@@ -99,19 +99,63 @@ internal sealed class LinkedInQueryService
         string query,
         CancellationToken cancellationToken)
     {
-        var links = page.Locator(string.Join(", ", LinkedInSelectors.ProfileLinkCandidates));
-        var count = await links.CountAsync();
+        var container = await FindHeroCardContainerAsync(page, cancellationToken);
+        if (container is null)
+        {
+            AppLog.Data(
+                "heroCardCount=0",
+                "ProfileDiscovery",
+                "capture-visible-targets",
+                $"query={query};reason=hero-card-container-not-found");
+            return 0;
+        }
+
+        var cardSelector = await ResolveHeroCardSelectorAsync(container, cancellationToken);
+        if (cardSelector is null)
+        {
+            AppLog.Data(
+                "heroCardCount=0",
+                "ProfileDiscovery",
+                "capture-visible-targets",
+                $"query={query};reason=hero-card-selector-not-found");
+            return 0;
+        }
+
+        var cards = container.Locator(cardSelector);
+        var count = await cards.CountAsync();
+        AppLog.Data($"heroCardCount={count}", "ProfileDiscovery", "capture-visible-targets", $"query={query};heroCardCount={count};cardSelector={cardSelector}");
         var added = 0;
 
         for (var index = 0; index < count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var link = links.Nth(index);
-            var href = await link.GetAttributeAsync("href");
-            var text = (await link.InnerTextAsync()).Trim();
+            var card = cards.Nth(index);
+            if (!await card.IsVisibleAsync())
+            {
+                continue;
+            }
+
+            var position = index + 1;
+            var visibleName = await ExtractCardNameAsync(card, cancellationToken);
+            if (string.IsNullOrWhiteSpace(visibleName) || string.Equals(visibleName, "LinkedIn Member", StringComparison.OrdinalIgnoreCase))
+            {
+                AppLog.Data(
+                    $"skipped hero card due to anonymous name;position={position}",
+                    "ProfileDiscovery",
+                    "capture-visible-targets",
+                    $"query={query};position={position}");
+                continue;
+            }
+
+            var href = await ExtractCardHrefAsync(card, cancellationToken);
 
             if (string.IsNullOrWhiteSpace(href))
             {
+                AppLog.Data(
+                    $"skipped hero card due to missing href;position={position}",
+                    "ProfileDiscovery",
+                    "capture-visible-targets",
+                    $"query={query};position={position};profileName={visibleName}");
                 continue;
             }
 
@@ -129,16 +173,94 @@ internal sealed class LinkedInQueryService
                 continue;
             }
 
-            discovered[absoluteHref] = new ContactDiscoveryTarget(absoluteHref, text, absoluteHref);
+            discovered[absoluteHref] = new ContactDiscoveryTarget(absoluteHref, visibleName, absoluteHref);
             added++;
             AppLog.Data(
-                $"found profile name={text};url={absoluteHref};position={index + 1}",
+                $"added hero card target;name={visibleName};url={absoluteHref}",
                 "ProfileDiscovery",
                 "capture-visible-targets",
-                $"query={query};profileName={text};profileUrl={absoluteHref};position={index + 1}");
+                $"query={query};profileName={visibleName};profileUrl={absoluteHref};position={position}");
         }
 
         return added;
+    }
+
+    private static async Task<ILocator?> FindHeroCardContainerAsync(IPage page, CancellationToken cancellationToken)
+    {
+        foreach (var selector in LinkedInSelectors.HeroCardContainerCandidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var candidate = page.Locator(selector).First;
+            if (await candidate.IsVisibleAsync())
+            {
+                AppLog.Data(
+                    $"heroCardContainerSelector={selector}",
+                    "ProfileDiscovery",
+                    "capture-visible-targets",
+                    $"heroCardContainerSelector={selector}");
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task<string?> ResolveHeroCardSelectorAsync(ILocator container, CancellationToken cancellationToken)
+    {
+        foreach (var selector in LinkedInSelectors.HeroCardCandidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var count = await container.Locator(selector).CountAsync();
+            if (count > 0)
+            {
+                return selector;
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task<string?> ExtractCardNameAsync(ILocator card, CancellationToken cancellationToken)
+    {
+        foreach (var selector in LinkedInSelectors.HeroCardNameCandidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var locator = card.Locator(selector).First;
+            if (!await locator.IsVisibleAsync())
+            {
+                continue;
+            }
+
+            var text = (await locator.InnerTextAsync()).Trim();
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                return text;
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task<string?> ExtractCardHrefAsync(ILocator card, CancellationToken cancellationToken)
+    {
+        foreach (var selector in LinkedInSelectors.HeroCardLinkCandidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var locator = card.Locator(selector).First;
+            var count = await card.Locator(selector).CountAsync();
+            if (count == 0)
+            {
+                continue;
+            }
+
+            var href = await locator.GetAttributeAsync("href");
+            if (!string.IsNullOrWhiteSpace(href))
+            {
+                return href.Trim();
+            }
+        }
+
+        return null;
     }
 
     private async Task<bool> TryClickShowMoreAsync(IPage page, CancellationToken cancellationToken)
