@@ -20,6 +20,10 @@ internal static class AppPaths
 
     public static string SettingsFilePath => Path.Combine(ConfigDirectory, "settings.json");
 
+    public static string InputDirectory => Path.Combine(RootDirectory, "input");
+
+    public static string DefaultBatchInputFilePath => Path.Combine(InputDirectory, "Company.txt");
+
     public static string CreateRunLogPath(DateTime timestamp)
     {
         return Path.Combine(LogDirectory, $"run_{timestamp:yyyy_MM_dd_HH_mm_ss}.log");

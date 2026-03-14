@@ -8,15 +8,18 @@ internal sealed class MenuService
     private readonly ConsolePromptService _promptService;
     private readonly MapperApplication _mapperApplication;
     private readonly ConfigurationService _configurationService;
+    private readonly InputFileLoader _inputFileLoader;
 
     public MenuService(
         ConsolePromptService promptService,
         MapperApplication mapperApplication,
-        ConfigurationService configurationService)
+        ConfigurationService configurationService,
+        InputFileLoader inputFileLoader)
     {
         _promptService = promptService;
         _mapperApplication = mapperApplication;
         _configurationService = configurationService;
+        _inputFileLoader = inputFileLoader;
     }
 
     public async Task<int> ShowMainMenuAsync()
@@ -25,9 +28,10 @@ internal sealed class MenuService
         {
             Console.WriteLine("==== ZKMapper ====");
             Console.WriteLine("1 Start Mapping");
-            Console.WriteLine("2 Manage CSV Files");
-            Console.WriteLine("3 Options");
-            Console.WriteLine("4 Exit");
+            Console.WriteLine("2 Map From Input File");
+            Console.WriteLine("3 Manage CSV Files");
+            Console.WriteLine("4 Options");
+            Console.WriteLine("5 Exit");
 
             var selection = _promptService.PromptMenuChoice("Select option");
             AppLog.Step("main menu selection received", "Menu", "show-main-menu", $"selection={selection}");
@@ -38,13 +42,16 @@ internal sealed class MenuService
                     await StartMappingAsync();
                     break;
                 case "2":
-                    ManageCsv();
+                    await MapFromInputFileAsync();
                     break;
                 case "3":
-                    OptionsMenu();
+                    ManageCsv();
                     break;
                 case "4":
-                    AppLog.Result("main menu exit selected", "Menu", "show-main-menu", "selection=4");
+                    OptionsMenu();
+                    break;
+                case "5":
+                    AppLog.Result("main menu exit selected", "Menu", "show-main-menu", "selection=5");
                     return 0;
                 default:
                     Console.WriteLine("Invalid option.");
@@ -75,6 +82,16 @@ internal sealed class MenuService
         }
 
         AppLog.Info("[QUEUE] starting company mapping", "Menu", "start-mapping", $"queueCount={queue.Count}");
+        Console.WriteLine("Processing queue...");
+        await _mapperApplication.RunCollectionAsync(queue);
+    }
+
+    public async Task MapFromInputFileAsync()
+    {
+        AppLog.Step("starting batch mapping from input file", "Menu", "map-from-input-file");
+        var inputPath = _promptService.PromptTextOrDefault("Enter path to input file", AppPaths.DefaultBatchInputFilePath);
+        var queue = _inputFileLoader.LoadQueue(inputPath);
+        Console.WriteLine($"Loaded {queue.Count} companies");
         Console.WriteLine("Processing queue...");
         await _mapperApplication.RunCollectionAsync(queue);
     }

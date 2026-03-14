@@ -30,62 +30,41 @@ internal sealed class ProfileExtractionService
 
         using var timer = ExecutionTimer.Start("ProfileOpen");
         AppLog.Step("opening profile tab", "ProfileOpen", "open-profile-tab", $"profileUrl={target.Href}");
-        var originalUrl = resultsPage.Url;
 
         try
         {
-            var link = resultsPage.Locator(LinkedInSelectors.BuildProfileLinkSelector(target.Href ?? string.Empty)).First;
-
             AppLog.Action(
-                "click",
+                "create new page",
                 "ProfileOpen",
                 "open-profile-tab",
-                $"selector={LinkedInSelectors.BuildProfileLinkSelector(target.Href ?? string.Empty)};profileUrl={target.Href}");
-            var newPage = await context.RunAndWaitForPageAsync(async () =>
+                $"profileUrl={target.Href}");
+            var profilePage = await context.NewPageAsync();
+
+            AppLog.Action(
+                "navigating browser",
+                "ProfileOpen",
+                "open-profile-tab",
+                $"profileUrl={target.Href}");
+            await profilePage.GotoAsync(target.Href, new PageGotoOptions
             {
-                await link.ClickAsync(new LocatorClickOptions
-                {
-                    Button = MouseButton.Left,
-                    Modifiers = new[] { KeyboardModifier.Control }
-                });
-            }, new BrowserContextRunAndWaitForPageOptions
-            {
-                Timeout = 5000
+                WaitUntil = WaitUntilState.DOMContentLoaded,
+                Timeout = 60000
             });
 
             AppLog.Action("switching context", "ProfileOpen", "switch-profile-tab", $"profileUrl={target.Href}");
-            await newPage.WaitForLoadStateAsync(LoadState.DOMContentLoaded);
-            await newPage.BringToFrontAsync();
-            AppLog.Result("profile tab context ready", "ProfileOpen", "switch-profile-tab", $"profileUrl={newPage.Url}");
-            await PlaywrightDiagnostics.TracePageSnapshotAsync(newPage, "ProfileOpen", "open-profile-tab", cancellationToken);
+            await profilePage.WaitForLoadStateAsync(LoadState.DOMContentLoaded);
+            await profilePage.BringToFrontAsync();
+            AppLog.Result("profile tab context ready", "ProfileOpen", "switch-profile-tab", $"profileUrl={profilePage.Url}");
+            await PlaywrightDiagnostics.TracePageSnapshotAsync(profilePage, "ProfileOpen", "open-profile-tab", cancellationToken);
             await _humanDelayService.DelayAsync(DelayProfile.Profile, "allow profile tab to finish rendering", cancellationToken);
 
-            AppLog.Result("profile page loaded", "ProfileOpen", "open-profile-tab", $"profileUrl={newPage.Url}");
-            return newPage;
-        }
-        catch (TimeoutException)
-        {
-            if (!string.Equals(resultsPage.Url, originalUrl, StringComparison.OrdinalIgnoreCase))
-            {
-                AppLog.Warn("Profile opened in the same tab and will be skipped", "ProfileOpen", "open-profile-tab", $"profileUrl={target.Href};url={resultsPage.Url}");
-                await resultsPage.GoBackAsync(new PageGoBackOptions
-                {
-                    WaitUntil = WaitUntilState.DOMContentLoaded,
-                    Timeout = 15000
-                });
-                await resultsPage.FirstVisibleAsync(LinkedInSelectors.ResultsContainerCandidates, cancellationToken);
-            }
-            else
-            {
-                await PlaywrightDiagnostics.TracePageSnapshotAsync(resultsPage, "ProfileOpen", "open-profile-tab", cancellationToken);
-            }
-
-            return null;
+            AppLog.Result("profile page loaded", "ProfileOpen", "open-profile-tab", $"profileUrl={profilePage.Url}");
+            return profilePage;
         }
         catch (Exception ex)
         {
             await PlaywrightDiagnostics.TracePageSnapshotAsync(resultsPage, "ProfileOpen", "open-profile-tab", cancellationToken);
-            AppLog.Warn(ex, $"Failure opening profile in a new tab for target {target.Href}", "ProfileOpen", "open-profile-tab", $"profileUrl={target.Href}");
+            AppLog.Warn(ex, $"Failure opening profile via direct navigation for target {target.Href}", "ProfileOpen", "open-profile-tab", $"profileUrl={target.Href}");
             return null;
         }
     }

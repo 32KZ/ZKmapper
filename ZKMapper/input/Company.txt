@@ -1,0 +1,3 @@
+Camunda|camunda.com|https://linkedin.com/company/camunda|germany|HR,Learning and Development,Procurement,IT
+#Pfizer|pfizer.com|https://linkedin.com/company/pfizer|germany|HR,L&D,Procurement
+#SAP|sap.com|https://linkedin.com/company/sap|germany|HR,IT

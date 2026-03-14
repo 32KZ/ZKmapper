@@ -95,6 +95,32 @@ internal sealed class ConsolePromptService
         }
     }
 
+    public string PromptRequiredText(string label)
+    {
+        while (true)
+        {
+            Console.Write($"{label}: ");
+            var value = Console.ReadLine()?.Trim();
+            AppLog.Input($"textPrompt={label};response={value}", $"label={label};response={value}");
+
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+
+            Console.WriteLine($"{label} is required.");
+        }
+    }
+
+    public string PromptTextOrDefault(string label, string defaultValue)
+    {
+        Console.Write($"{label} [{defaultValue}]: ");
+        var value = Console.ReadLine()?.Trim();
+        var resolvedValue = string.IsNullOrWhiteSpace(value) ? defaultValue : value;
+        AppLog.Input($"textPrompt={label};response={resolvedValue}", $"label={label};response={resolvedValue};defaultApplied={string.IsNullOrWhiteSpace(value)}");
+        return resolvedValue;
+    }
+
     private static string PromptRequired(string label)
     {
         while (true)
