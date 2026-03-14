@@ -80,6 +80,7 @@ internal sealed class MapperApplication
     {
         using (LogContext.PushProperty("Company", input.CompanyName))
         {
+            Log.Information("Next step: open company page and switch to People for {CompanyName}", input.CompanyName);
             await _navigationService.NavigateToCompanyPeoplePageAsync(session.Page, input, cancellationToken);
 
             foreach (var title in input.TitleFilters)
@@ -87,6 +88,7 @@ internal sealed class MapperApplication
                 var query = _queryService.BuildQuery(input.SearchCountry, title);
                 using (LogContext.PushProperty("Query", query))
                 {
+                    Log.Information("Next step: submit LinkedIn people query {Query}", query);
                     try
                     {
                         await _queryService.SubmitQueryAsync(session.Page, query, cancellationToken);
@@ -100,7 +102,9 @@ internal sealed class MapperApplication
                     IReadOnlyList<ContactDiscoveryTarget> targets;
                     try
                     {
+                        Log.Information("Next step: discover matching profiles for query {Query}", query);
                         targets = await _queryService.DiscoverContactsAsync(session.Page, query, cancellationToken);
+                        Log.Information("Discovery complete for query {Query}. Found {TargetCount} targets.", query, targets.Count);
                     }
                     catch (Exception ex)
                     {
@@ -112,6 +116,7 @@ internal sealed class MapperApplication
                     {
                         using (LogContext.PushProperty("ProfileUrl", target.Href))
                         {
+                            Log.Information("Next step: open profile {ProfileUrl}", target.Href);
                             var profilePage = await _profileExtractionService.TryOpenProfileInNewTabAsync(
                                 session.Context,
                                 session.Page,
@@ -125,6 +130,7 @@ internal sealed class MapperApplication
 
                             try
                             {
+                                Log.Information("Next step: extract profile details from {ProfileUrl}", target.Href);
                                 var profile = await _profileExtractionService.ExtractAsync(profilePage, query, cancellationToken);
                                 if (profile is null)
                                 {
@@ -148,7 +154,9 @@ internal sealed class MapperApplication
                                     TimestampUTC = profile.TimestampUtc
                                 };
 
+                                Log.Information("Next step: write mapped row for {ProfileUrl}", profile.ProfileUrl);
                                 await csvWriter.WriteRowAsync(row, cancellationToken);
+                                Log.Information("Mapped row written for {ProfileUrl}", profile.ProfileUrl);
                             }
                             catch (Exception ex)
                             {
