@@ -1,32 +1,35 @@
+using ZKMapper.Models;
 using ZKMapper.Infrastructure;
 
 namespace ZKMapper.Services;
 
 internal sealed class HumanDelayService
 {
-    public Task DelayAsync(int minSeconds, int maxSeconds, string reason, CancellationToken cancellationToken = default)
+    private readonly ConfigurationService _configurationService;
+
+    public HumanDelayService(ConfigurationService configurationService)
     {
-        if (minSeconds < 0 || maxSeconds < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(minSeconds), "Delay values must be non-negative.");
-        }
+        _configurationService = configurationService;
+    }
 
-        if (maxSeconds < minSeconds)
-        {
-            throw new ArgumentOutOfRangeException(nameof(maxSeconds), "Maximum delay must be greater than or equal to minimum delay.");
-        }
+    public Task DelayAsync(DelayProfile profile, string reason, CancellationToken cancellationToken = default)
+    {
+        var range = _configurationService.GetDelayRange(profile);
+        return DelayAsync(range, reason, cancellationToken);
+    }
 
-        var minMilliseconds = minSeconds * 1000;
-        var maxMilliseconds = maxSeconds * 1000;
-        var delay = minMilliseconds == maxMilliseconds
-            ? minMilliseconds
-            : Random.Shared.Next(minMilliseconds, maxMilliseconds + 1);
+    public Task DelayAsync(DelayRange range, string reason, CancellationToken cancellationToken = default)
+    {
+        range.Validate();
+        var delay = range.MinMs == range.MaxMs
+            ? range.MinMs
+            : Random.Shared.Next(range.MinMs, range.MaxMs + 1);
 
         AppLog.Wait(
             $"sleeping {TimeSpan.FromMilliseconds(delay).TotalSeconds:F1} seconds",
             "HumanDelay",
             "delay",
-            $"reason={reason};delayMs={delay}");
+            $"reason={reason};delayMs={delay};minMs={range.MinMs};maxMs={range.MaxMs}");
 
         return Task.Delay(delay, cancellationToken);
     }

@@ -12,6 +12,14 @@ internal static class AppPaths
 
     public static string LogDirectory => Path.Combine(RootDirectory, "logs");
 
+    public static string DebugDirectory => Path.Combine(LogDirectory, "debug");
+
+    public static string DebugPeoplePageScreenshotPath => Path.Combine(DebugDirectory, "debug_people_page.png");
+
+    public static string ConfigDirectory => Path.Combine(RootDirectory, "config");
+
+    public static string SettingsFilePath => Path.Combine(ConfigDirectory, "settings.json");
+
     public static string CreateRunLogPath(DateTime timestamp)
     {
         return Path.Combine(LogDirectory, $"run_{timestamp:yyyy_MM_dd_HH_mm_ss}.log");

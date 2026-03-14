@@ -28,7 +28,7 @@ internal sealed class LinkedInNavigationService
         await ClickPeopleTabAsync(page, cancellationToken);
         AppLog.Result("People page ready", "CompanyNavigation", "select-people-tab", $"company={input.CompanyName};url={page.Url}");
         AppLog.Next("executing people search", "CompanyNavigation", "ready-for-query", $"company={input.CompanyName}");
-        await _humanDelayService.DelayAsync(2, 4, "stabilize People page before query execution", cancellationToken);
+        await _humanDelayService.DelayAsync(DelayProfile.Navigation, "stabilize People page before query execution", cancellationToken);
     }
 
     private static async Task NavigateToCompanyPageAsync(IPage page, string url, CancellationToken cancellationToken)

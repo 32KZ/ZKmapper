@@ -14,10 +14,16 @@ internal static class LinkedInSelectors
 
     public static readonly string[] PeopleSearchInputCandidates =
     {
-        "main input[placeholder*='Search employees by title']",
-        "main input[placeholder*='Search employees']",
-        "main input[placeholder*='keyword or school']",
-        "main input[placeholder*='Search']"
+        "div.org-people__filters input[placeholder*='Search']",
+        "div.org-people__filters input[placeholder*='title']",
+        "div.org-people__filters input[type='text']"
+    };
+
+    public static readonly string[] PeopleFiltersContainerCandidates =
+    {
+        "div.org-people__filters",
+        "div[class*='org-people']",
+        "div[class*='search']"
     };
 
     public static readonly string[] ResultsContainerCandidates =

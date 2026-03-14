@@ -18,6 +18,8 @@ internal sealed class Program
         Directory.CreateDirectory(AppPaths.OutputDirectory);
         Directory.CreateDirectory(AppPaths.SessionDirectory);
         Directory.CreateDirectory(AppPaths.LogDirectory);
+        Directory.CreateDirectory(AppPaths.DebugDirectory);
+        Directory.CreateDirectory(AppPaths.ConfigDirectory);
 
         AppLog.TraceEnabled = runtimeOptions.VerboseEnabled;
         Log.Logger = LoggingSetup.CreateLogger(runtimeOptions);
@@ -28,12 +30,14 @@ internal sealed class Program
             LogStartup(runtimeOptions);
 
             var contextFactory = new PlaywrightContextFactory();
-            var humanDelayService = new HumanDelayService();
+            var configurationService = new ConfigurationService();
+            var promptService = new ConsolePromptService();
+            var humanDelayService = new HumanDelayService(configurationService);
             var retryService = new RetryService();
             var scrollExhaustionService = new ScrollExhaustionService(humanDelayService);
 
             var app = new MapperApplication(
-                new ConsolePromptService(),
+                promptService,
                 new SessionStateManager(),
                 new BrowserManager(contextFactory),
                 new LinkedInNavigationService(retryService, humanDelayService),
@@ -42,6 +46,7 @@ internal sealed class Program
                 new EmailGenerationService(),
                 humanDelayService,
                 statistics);
+            var menuService = new MenuService(promptService, app, configurationService);
 
             var command = runtimeOptions.OriginalArgs
                 .FirstOrDefault(arg => !arg.StartsWith("--", StringComparison.Ordinal))
@@ -57,7 +62,7 @@ internal sealed class Program
             return command switch
             {
                 "auth" => await app.RunAuthSetupAsync(),
-                _ => await app.RunCollectionAsync()
+                _ => await menuService.ShowMainMenuAsync()
             };
         }
         catch (Exception ex)

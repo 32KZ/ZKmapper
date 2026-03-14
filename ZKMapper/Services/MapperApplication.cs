@@ -50,30 +50,27 @@ internal sealed class MapperApplication
         return 0;
     }
 
-    public async Task<int> RunCollectionAsync()
+    public async Task<int> RunCollectionAsync(MappingQueue queue)
     {
         using var timer = ExecutionTimer.Start("RunCollection");
         _sessionStateManager.EnsureSessionStateExists();
-        var runMetadata = CreateRunMetadata();
+        if (queue.Count == 0)
+        {
+            AppLog.Warn("mapping queue was empty", "RunCollection", "initialize-run");
+            return 0;
+        }
 
-        AppLog.Step("starting collection run", "RunCollection", "initialize-run", $"runNumber={runMetadata.RunNumber};startedUtc={runMetadata.StartedUtc:O}");
+        var runMetadata = CreateRunMetadata();
+        AppLog.Step("starting collection run", "RunCollection", "initialize-run", $"runNumber={runMetadata.RunNumber};startedUtc={runMetadata.StartedUtc:O};queueCount={queue.Count}");
         await using var session = await _browserManager.LaunchAsync(useSavedSession: true, CancellationToken.None);
 
-        while (true)
+        foreach (var input in queue.Companies)
         {
-            var input = _promptService.PromptCompanyInput();
-            AppLog.Result("company input accepted", "RunCollection", "capture-input", $"companyName={input.CompanyName}");
-
             using var csvWriter = new CsvWriterService(input, runMetadata);
             AppLog.Data($"csvOutputPath={csvWriter.OutputPath}", "RunCollection", "initialize-csv-writer", $"outputPath={csvWriter.OutputPath}");
 
             await ProcessCompanyAsync(session, input, csvWriter, CancellationToken.None);
             AppLog.Result("company mapping completed", "RunCollection", "process-company", $"companyName={input.CompanyName};outputPath={csvWriter.OutputPath}");
-
-            if (!_promptService.PromptYesNo("Would you like to add another company to map?"))
-            {
-                break;
-            }
         }
 
         AppLog.Summary(
@@ -192,13 +189,13 @@ internal sealed class MapperApplication
                                 await profilePage.CloseAsync();
                                 AppLog.Action("bring-to-front", "ProcessCompany", "focus-results-page", $"companyPageUrl={session.Page.Url}");
                                 await session.Page.BringToFrontAsync();
-                                await _humanDelayService.DelayAsync(1, 2, "pause after closing profile tab and returning to results", cancellationToken);
+                                await _humanDelayService.DelayAsync(DelayProfile.Navigation, "pause after closing profile tab and returning to results", cancellationToken);
                             }
                         }
                     }
 
                     AppLog.Next("advance to next query if available", "ProcessCompany", "next-query", $"query={query}");
-                    await _humanDelayService.DelayAsync(2, 4, "pause between company title queries", cancellationToken);
+                    await _humanDelayService.DelayAsync(DelayProfile.Navigation, "pause between company title queries", cancellationToken);
                 }
             }
         }

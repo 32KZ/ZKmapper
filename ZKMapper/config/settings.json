@@ -1,0 +1,10 @@
+{
+  "Delays": {
+    "NavigationMinMs": 3000,
+    "NavigationMaxMs": 7000,
+    "SearchMinMs": 6000,
+    "SearchMaxMs": 12000,
+    "ProfileOpenMinMs": 15000,
+    "ProfileOpenMaxMs": 35000
+  }
+}

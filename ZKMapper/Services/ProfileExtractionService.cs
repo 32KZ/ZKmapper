@@ -78,7 +78,7 @@ internal sealed class ProfileExtractionService
 
             await newPage.WaitForLoadStateAsync(LoadState.DOMContentLoaded);
             await PlaywrightDiagnostics.TracePageSnapshotAsync(newPage, "ProfileOpen", "open-profile-tab", cancellationToken);
-            await _humanDelayService.DelayAsync(2, 4, "allow profile tab to finish rendering", cancellationToken);
+            await _humanDelayService.DelayAsync(DelayProfile.ProfileOpen, "allow profile tab to finish rendering", cancellationToken);
 
             AppLog.Result("profile page loaded", "ProfileOpen", "open-profile-tab", $"profileUrl={newPage.Url}");
             return newPage;
@@ -106,7 +106,7 @@ internal sealed class ProfileExtractionService
                 cancellationToken);
 
             AppLog.Data($"FullName={fullName}", "ProfileExtraction", "extract-full-name", $"profileUrl={profilePage.Url};FullName={fullName}");
-            await _humanDelayService.DelayAsync(1, 2, "pause between profile field extraction steps", cancellationToken);
+            await _humanDelayService.DelayAsync(DelayProfile.ProfileOpen, "pause between profile field extraction steps", cancellationToken);
 
             var currentTitles = await _retryService.ExecuteAsync(
                 token => ExtractCurrentRolesAsync(profilePage, token),

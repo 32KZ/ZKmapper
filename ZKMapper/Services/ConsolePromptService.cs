@@ -5,6 +5,14 @@ namespace ZKMapper.Services;
 
 internal sealed class ConsolePromptService
 {
+    public string PromptMenuChoice(string prompt)
+    {
+        Console.Write($"{prompt}: ");
+        var response = Console.ReadLine()?.Trim() ?? string.Empty;
+        AppLog.Input($"menuChoice={response}", $"prompt={prompt};response={response}");
+        return response;
+    }
+
     public CompanyInput PromptCompanyInput()
     {
         AppLog.Step("capturing CLI input", "InputCapture", "prompt-company-input");
@@ -68,6 +76,23 @@ internal sealed class ConsolePromptService
         AppLog.Step(message, "InputCapture", "wait-for-enter");
         Console.ReadLine();
         AppLog.Result("ENTER received", "InputCapture", "wait-for-enter");
+    }
+
+    public int PromptRequiredInt(string label)
+    {
+        while (true)
+        {
+            Console.Write($"{label}: ");
+            var value = Console.ReadLine()?.Trim();
+            AppLog.Input($"intPrompt={label};response={value}", $"label={label};response={value}");
+
+            if (int.TryParse(value, out var parsed))
+            {
+                return parsed;
+            }
+
+            Console.WriteLine($"{label} must be a whole number.");
+        }
     }
 
     private static string PromptRequired(string label)

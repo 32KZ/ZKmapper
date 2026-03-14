@@ -31,7 +31,7 @@ internal sealed class LinkedInQueryService
         AppLog.Step("executing search", "QueryExecution", "submit-query", $"keyword={query}");
         var searchInput = await LocatePeopleSearchInputAsync(page, cancellationToken);
 
-        await _humanDelayService.DelayAsync(5, 12, "simulate human search interaction", cancellationToken);
+        await _humanDelayService.DelayAsync(DelayProfile.Search, "simulate human search interaction", cancellationToken);
 
         await _retryService.ExecuteAsync(async token =>
         {
@@ -59,7 +59,7 @@ internal sealed class LinkedInQueryService
                 State = WaitForSelectorState.Visible,
                 Timeout = 15000
             });
-            await _humanDelayService.DelayAsync(5, 12, "allow filtered LinkedIn people results to render after query", token);
+            await _humanDelayService.DelayAsync(DelayProfile.Search, "allow filtered LinkedIn people results to render after query", token);
         }, cancellationToken);
 
         AppLog.Result("filtered results loaded", "QueryExecution", "wait-for-results", $"query={query};queryUrl={page.Url}");
@@ -85,7 +85,7 @@ internal sealed class LinkedInQueryService
             if (await TryClickShowMoreAsync(page, cancellationToken))
             {
                 AppLog.Result("show more results triggered", "ProfileDiscovery", "show-more", $"query={query}");
-                await _humanDelayService.DelayAsync(2, 4, "allow additional LinkedIn search results after show more", cancellationToken);
+                await _humanDelayService.DelayAsync(DelayProfile.Search, "allow additional LinkedIn search results after show more", cancellationToken);
                 continue;
             }
 
@@ -162,32 +162,49 @@ internal sealed class LinkedInQueryService
         {
             AppLog.Action("click", "ProfileDiscovery", "click-show-more", $"selectorCandidates={string.Join(" | ", LinkedInSelectors.ShowMoreButtonCandidates)}");
             await button.ClickAsync();
-            await _humanDelayService.DelayAsync(2, 4, "wait after clicking show more results", token);
+            await _humanDelayService.DelayAsync(DelayProfile.Search, "wait after clicking show more results", token);
             return true;
         }, cancellationToken);
     }
 
     private static async Task<ILocator> LocatePeopleSearchInputAsync(IPage page, CancellationToken cancellationToken)
     {
-        AppLog.Step("locating People page search input", "SelectorLookup", "locate-people-search-input", "selectorScope=main");
-        AppLog.Data("selectorScope=main", "SelectorLookup", "locate-people-search-input", "selectorScope=main");
+        AppLog.Step("waiting for People filters UI", "SelectorLookup", "wait-for-people-filters", $"selector={LinkedInSelectors.PeopleFiltersContainerCandidates[0]}");
+        ILocator? filtersContainer = null;
+
+        foreach (var selector in LinkedInSelectors.PeopleFiltersContainerCandidates)
+        {
+            var candidate = page.Locator(selector).First;
+            if (await IsVisibleAsync(candidate, cancellationToken, 15000))
+            {
+                filtersContainer = candidate;
+                break;
+            }
+        }
+
+        if (filtersContainer is null)
+        {
+            AppLog.Error(
+                new TimeoutException("People filters UI not detected"),
+                "People filters UI not detected",
+                "SelectorLookup",
+                "wait-for-people-filters",
+                $"selectorCandidates={string.Join(" | ", LinkedInSelectors.PeopleFiltersContainerCandidates)}");
+            throw new InvalidOperationException("People filters UI not detected.");
+        }
+
+        AppLog.Result("People filters UI detected", "SelectorLookup", "wait-for-people-filters", $"selectorCandidates={string.Join(" | ", LinkedInSelectors.PeopleFiltersContainerCandidates)}");
+        AppLog.Step("locating People search input inside filters container", "SelectorLookup", "locate-people-search-input", "selectorScope=div.org-people__filters");
         AppLog.Trace(
             $"selectorCandidates={string.Join(", ", LinkedInSelectors.PeopleSearchInputCandidates)}",
             "SelectorLookup",
             "locate-people-search-input",
             $"selectorCount={LinkedInSelectors.PeopleSearchInputCandidates.Length}");
 
-        var container = page.Locator("main").First;
-        await container.WaitForAsync(new LocatorWaitForOptions
-        {
-            State = WaitForSelectorState.Visible,
-            Timeout = 15000
-        });
-
-        var visibleInputCount = await container.Locator("input").CountAsync();
+        var visibleInputCount = await filtersContainer.Locator("input").CountAsync();
         AppLog.Trace($"visibleInputs={visibleInputCount}", "SelectorLookup", "locate-people-search-input", $"visibleInputs={visibleInputCount}");
 
-        var placeholders = await container.Locator("input").EvaluateAllAsync<string[]>(
+        var placeholders = await filtersContainer.Locator("input").EvaluateAllAsync<string[]>(
             @"elements => elements
                 .map(element => element.getAttribute('placeholder'))
                 .filter(value => value)");
@@ -199,11 +216,7 @@ internal sealed class LinkedInQueryService
 
         foreach (var selector in LinkedInSelectors.PeopleSearchInputCandidates)
         {
-            var scopedSelector = selector.StartsWith("main ", StringComparison.Ordinal)
-                ? selector["main ".Length..]
-                : selector;
-
-            var locator = container.Locator(scopedSelector);
+            var locator = page.Locator(selector);
             var count = await locator.CountAsync();
             AppLog.Data($"searchInputCandidates={count}", "SelectorLookup", "locate-people-search-input", $"selector={selector};searchInputCandidates={count}");
 
@@ -215,13 +228,21 @@ internal sealed class LinkedInQueryService
             var visibleLocator = locator.First;
             if (await IsVisibleAsync(visibleLocator, cancellationToken))
             {
-                AppLog.Result($"selector resolved {selector}", "SelectorLookup", "locate-people-search-input", $"selector={selector}");
+                AppLog.Result("searchInputFound=true", "SelectorLookup", "locate-people-search-input", $"selector={selector}");
                 return visibleLocator;
             }
         }
 
+        AppLog.Result("searchInputFound=false", "SelectorLookup", "locate-people-search-input", $"selectorCandidates={string.Join(" | ", LinkedInSelectors.PeopleSearchInputCandidates)}");
         var html = await page.ContentAsync();
         var title = await page.TitleAsync();
+        Directory.CreateDirectory(AppPaths.DebugDirectory);
+        await page.ScreenshotAsync(new PageScreenshotOptions
+        {
+            Path = AppPaths.DebugPeoplePageScreenshotPath,
+            FullPage = true
+        });
+        AppLog.Debug("screenshot saved", "SelectorLookup", "locate-people-search-input", $"path={AppPaths.DebugPeoplePageScreenshotPath}");
         AppLog.Error(
             new InvalidOperationException("People page search input not found"),
             "People page search input not found",
@@ -232,14 +253,14 @@ internal sealed class LinkedInQueryService
         throw new InvalidOperationException("People page search input not found.");
     }
 
-    private static async Task<bool> IsVisibleAsync(ILocator locator, CancellationToken cancellationToken)
+    private static async Task<bool> IsVisibleAsync(ILocator locator, CancellationToken cancellationToken, int timeoutMs = 1500)
     {
         try
         {
             await locator.WaitForAsync(new LocatorWaitForOptions
             {
                 State = WaitForSelectorState.Visible,
-                Timeout = 1500
+                Timeout = timeoutMs
             });
             cancellationToken.ThrowIfCancellationRequested();
             return true;
