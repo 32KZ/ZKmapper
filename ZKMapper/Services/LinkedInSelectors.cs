@@ -14,10 +14,10 @@ internal static class LinkedInSelectors
 
     public static readonly string[] PeopleSearchInputCandidates =
     {
-        "input[role='combobox'][aria-label*='Search']",
-        "input[aria-label*='Search employees']",
-        "input[placeholder*='Search by title']",
-        "input[placeholder*='Search employees']"
+        "main input[placeholder*='Search employees by title']",
+        "main input[placeholder*='Search employees']",
+        "main input[placeholder*='keyword or school']",
+        "main input[placeholder*='Search']"
     };
 
     public static readonly string[] ResultsContainerCandidates =
