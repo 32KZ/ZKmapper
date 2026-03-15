@@ -6,5 +6,11 @@
     "ScrollMaxMs": 4000,
     "ProfileMinMs": 10000,
     "ProfileMaxMs": 25000
+  },
+  "Webhook": {
+    "ActiveMode": "Test",
+    "ProductionWebhookUrl": "",
+    "TestWebhookUrl": "",
+    "HeaderAuthenticationEnabled": false
   }
 }

@@ -12,19 +12,25 @@ internal sealed class MenuService
     private readonly MapperApplication _mapperApplication;
     private readonly ConfigurationService _configurationService;
     private readonly InputFileLoader _inputFileLoader;
+    private readonly WebhookAuthenticationStorageService _webhookAuthenticationStorage;
+    private readonly WebhookService _webhookService;
 
     public MenuService(
         ConsolePromptService promptService,
         ConsoleUiService consoleUiService,
         MapperApplication mapperApplication,
         ConfigurationService configurationService,
-        InputFileLoader inputFileLoader)
+        InputFileLoader inputFileLoader,
+        WebhookAuthenticationStorageService webhookAuthenticationStorage,
+        WebhookService webhookService)
     {
         _promptService = promptService;
         _consoleUiService = consoleUiService;
         _mapperApplication = mapperApplication;
         _configurationService = configurationService;
         _inputFileLoader = inputFileLoader;
+        _webhookAuthenticationStorage = webhookAuthenticationStorage;
+        _webhookService = webhookService;
     }
 
     public async Task<int> ShowMainMenuAsync()
@@ -36,7 +42,7 @@ internal sealed class MenuService
                 new SelectionPrompt<string>()
                     .Title("Select an option")
                     .PageSize(10)
-                    .AddChoices("Start Mapping", "Map From Input File", "Manage CSV Files", "Manage Logs", "Options", "Exit"));
+                    .AddChoices("Start Mapping", "Map From Input File", "Manage CSV Files", "Manage Logs", "Send Files to Webhook", "Options", "Exit"));
 
             AppLog.Step("main menu selection received", "Menu", "show-main-menu", $"selection={selection}");
 
@@ -53,6 +59,9 @@ internal sealed class MenuService
                     break;
                 case "Manage Logs":
                     ManageLogs();
+                    break;
+                case "Send Files to Webhook":
+                    await SendFilesToWebhookAsync();
                     break;
                 case "Options":
                     OptionsMenu();
@@ -147,6 +156,7 @@ internal sealed class MenuService
                         $"Navigation Delay ({navigation.MinMs}-{navigation.MaxMs} ms)",
                         $"Scroll Delay ({scroll.MinMs}-{scroll.MaxMs} ms)",
                         $"Profile Delay ({profile.MinMs}-{profile.MaxMs} ms)",
+                        "Webhook Settings",
                         "Back"));
             switch (selection)
             {
@@ -158,6 +168,9 @@ internal sealed class MenuService
                     break;
                 case var _ when selection.StartsWith("Profile Delay", StringComparison.Ordinal):
                     UpdateDelayRange(DelayProfile.Profile, "Profile Delay");
+                    break;
+                case "Webhook Settings":
+                    ShowWebhookSettingsMenu();
                     break;
                 case "Back":
                     return;
@@ -251,6 +264,120 @@ internal sealed class MenuService
                 .Title(title)
                 .PageSize(10)
                 .AddChoices(choices));
+    }
+
+    private void ShowWebhookSettingsMenu()
+    {
+        while (true)
+        {
+            var webhook = _configurationService.GetWebhookSettings();
+            var auth = _webhookAuthenticationStorage.Load();
+            var headerState = webhook.HeaderAuthenticationEnabled ? "Enabled" : "Disabled";
+            var configuredAuth = auth.IsConfigured ? auth.HeaderName : "Not configured";
+
+            _consoleUiService.ResetScreen();
+            var selection = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("Webhook Settings")
+                    .PageSize(10)
+                    .AddChoices(
+                        $"Select Webhook Mode ({webhook.ActiveMode})",
+                        $"Configure Production URL ({DisplayConfigured(webhook.ProductionWebhookUrl)})",
+                        $"Configure Test URL ({DisplayConfigured(webhook.TestWebhookUrl)})",
+                        $"Header Authentication ({headerState})",
+                        $"Header Credentials ({configuredAuth})",
+                        "Back"));
+
+            switch (selection)
+            {
+                case var _ when selection.StartsWith("Select Webhook Mode", StringComparison.Ordinal):
+                    ConfigureWebhookMode();
+                    break;
+                case var _ when selection.StartsWith("Configure Production URL", StringComparison.Ordinal):
+                    ConfigureWebhookUrl(WebhookMode.Production);
+                    break;
+                case var _ when selection.StartsWith("Configure Test URL", StringComparison.Ordinal):
+                    ConfigureWebhookUrl(WebhookMode.Test);
+                    break;
+                case var _ when selection.StartsWith("Header Authentication", StringComparison.Ordinal):
+                    ConfigureHeaderAuthentication();
+                    break;
+                case var _ when selection.StartsWith("Header Credentials", StringComparison.Ordinal):
+                    ConfigureHeaderCredentials();
+                    break;
+                case "Back":
+                    return;
+            }
+        }
+    }
+
+    private async Task SendFilesToWebhookAsync()
+    {
+        var webhookSettings = _configurationService.GetWebhookSettings();
+        var webhookUrl = _webhookService.GetActiveWebhookUrl();
+
+        if (string.IsNullOrWhiteSpace(webhookUrl))
+        {
+            _consoleUiService.ResetScreen();
+            AnsiConsole.MarkupLine("[red]Webhook URL is not configured for the active mode.[/]");
+            _promptService.WaitForEnter("Press ENTER to return to the main menu.");
+            return;
+        }
+
+        var csvPath = SelectFilePath("Select CSV File", AppPaths.OutputDirectory, "*.csv");
+        if (string.IsNullOrWhiteSpace(csvPath))
+        {
+            return;
+        }
+
+        var logPath = SelectFilePath("Select Log File", AppPaths.LogDirectory, "*.log");
+        if (string.IsNullOrWhiteSpace(logPath))
+        {
+            return;
+        }
+
+        _consoleUiService.ResetScreen();
+        var confirmationTable = new Table().Border(TableBorder.Rounded);
+        confirmationTable.AddColumn("Field");
+        confirmationTable.AddColumn("Value");
+        confirmationTable.AddRow("CSV File", Markup.Escape(csvPath));
+        confirmationTable.AddRow("Log File", Markup.Escape(logPath));
+        confirmationTable.AddRow("Webhook URL", Markup.Escape(webhookUrl));
+        confirmationTable.AddRow("Mode", webhookSettings.ActiveMode.ToString());
+        AnsiConsole.Write(confirmationTable);
+        AnsiConsole.WriteLine();
+
+        var confirmed = AnsiConsole.Prompt(
+            new SelectionPrompt<string>()
+                .Title("Send selected files?")
+                .PageSize(10)
+                .AddChoices("Send", "Cancel"));
+
+        if (confirmed != "Send")
+        {
+            return;
+        }
+
+        var result = await _webhookService.SendFilesAsync(csvPath, logPath);
+        _consoleUiService.ResetScreen();
+
+        if (result.Success)
+        {
+            AnsiConsole.MarkupLine("[green]Webhook sent successfully.[/]");
+        }
+        else
+        {
+            AnsiConsole.MarkupLine("[red]Webhook failed.[/]");
+        }
+
+        AnsiConsole.MarkupLine($"Status Code: {Markup.Escape(result.StatusCode?.ToString() ?? "n/a")}");
+        if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
+        {
+            AnsiConsole.MarkupLine($"Error: {Markup.Escape(result.ErrorMessage)}");
+        }
+
+        AnsiConsole.MarkupLine($"Response: {Markup.Escape(result.ResponseBody)}");
+        _promptService.WaitForEnter("Press ENTER to return to the main menu.");
     }
 
     private void ManageFiles(
@@ -354,6 +481,111 @@ internal sealed class MenuService
         AppLog.Info($"{logPrefix} opened file with selected program", "Menu", actionName, $"file={targetFile};program={program}");
         _consoleUiService.ResetScreen();
         AnsiConsole.MarkupLine($"[green]Opened {Markup.Escape(Path.GetFileName(targetFile))} with {Markup.Escape(program)}.[/]");
+    }
+
+    private void ConfigureWebhookMode()
+    {
+        var selection = PromptSelector("Select Webhook Mode", "Production", "Test");
+        var mode = string.Equals(selection, "Production", StringComparison.Ordinal)
+            ? WebhookMode.Production
+            : WebhookMode.Test;
+
+        _configurationService.UpdateWebhookMode(mode);
+        _consoleUiService.ResetScreen();
+        AnsiConsole.MarkupLine($"[green]Active webhook mode set to {Markup.Escape(mode.ToString())}.[/]");
+    }
+
+    private void ConfigureWebhookUrl(WebhookMode mode)
+    {
+        var settings = _configurationService.GetWebhookSettings();
+        var currentUrl = mode == WebhookMode.Production
+            ? settings.ProductionWebhookUrl
+            : settings.TestWebhookUrl;
+        var updatedUrl = _promptService.PromptTextOrDefault($"Enter {mode} webhook URL", currentUrl);
+        _configurationService.UpdateWebhookUrl(mode, updatedUrl);
+        _consoleUiService.ResetScreen();
+        AnsiConsole.MarkupLine($"[green]{Markup.Escape(mode.ToString())} webhook URL saved.[/]");
+    }
+
+    private void ConfigureHeaderAuthentication()
+    {
+        var selection = PromptSelector("Header Authentication", "Disabled", "Enabled");
+        var enabled = string.Equals(selection, "Enabled", StringComparison.Ordinal);
+        _configurationService.UpdateHeaderAuthenticationEnabled(enabled);
+
+        if (enabled)
+        {
+            ConfigureHeaderCredentials();
+            return;
+        }
+
+        _consoleUiService.ResetScreen();
+        AnsiConsole.MarkupLine("[green]Header authentication disabled.[/]");
+    }
+
+    private void ConfigureHeaderCredentials()
+    {
+        var currentValues = _webhookAuthenticationStorage.Load();
+        var headerName = _promptService.PromptTextOrDefault("Header name", currentValues.HeaderName);
+        var headerSecret = _promptService.PromptTextOrDefault("Header secret", currentValues.HeaderSecret);
+        _webhookAuthenticationStorage.Save(headerName, headerSecret);
+        _consoleUiService.ResetScreen();
+        AnsiConsole.MarkupLine("[green]Webhook header credentials saved locally.[/]");
+    }
+
+    private string? SelectFilePath(string title, string defaultDirectory, string searchPattern)
+    {
+        while (true)
+        {
+            _consoleUiService.ResetScreen();
+            Directory.CreateDirectory(defaultDirectory);
+            var files = Directory
+                .EnumerateFiles(defaultDirectory, searchPattern, SearchOption.TopDirectoryOnly)
+                .OrderByDescending(File.GetLastWriteTimeUtc)
+                .ThenBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            var choices = files
+                .Select(Path.GetFileName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Cast<string>()
+                .ToList();
+
+            choices.Add("Enter path manually");
+            choices.Add("Back");
+
+            var selected = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title(title)
+                    .PageSize(12)
+                    .AddChoices(choices));
+
+            if (selected == "Back")
+            {
+                return null;
+            }
+
+            if (selected == "Enter path manually")
+            {
+                var manualPath = _promptService.PromptRequiredText("Enter full file path");
+                if (File.Exists(manualPath))
+                {
+                    return manualPath;
+                }
+
+                _consoleUiService.ResetScreen();
+                AnsiConsole.MarkupLine($"[red]File not found:[/] {Markup.Escape(manualPath)}");
+                _promptService.WaitForEnter("Press ENTER to try again.");
+                continue;
+            }
+
+            return files.First(file => string.Equals(Path.GetFileName(file), selected, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    private static string DisplayConfigured(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? "Not set" : "Configured";
     }
 
     private static void DrawDelayEditorRow(string[] actions, int selectedIndex, int rowIndex, string text)

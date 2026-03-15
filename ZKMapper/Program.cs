@@ -21,6 +21,8 @@ internal sealed class Program
         Directory.CreateDirectory(AppPaths.DebugDirectory);
         Directory.CreateDirectory(AppPaths.ConfigDirectory);
         Directory.CreateDirectory(AppPaths.InputDirectory);
+        Directory.CreateDirectory(AppPaths.WebhookDirectory);
+        Directory.CreateDirectory(AppPaths.WebhookAuthenticationDirectory);
 
         LoggerConsoleHost.Start(runtimeOptions.LogFilePath);
 
@@ -36,6 +38,8 @@ internal sealed class Program
             var configurationService = new ConfigurationService();
             var promptService = new ConsolePromptService();
             var consoleUiService = new ConsoleUiService();
+            var webhookAuthenticationStorage = new WebhookAuthenticationStorageService();
+            var webhookService = new WebhookService(configurationService, webhookAuthenticationStorage);
             var humanDelayService = new HumanDelayService(configurationService);
             var retryService = new RetryService();
             var scrollExhaustionService = new ScrollExhaustionService(humanDelayService);
@@ -54,7 +58,14 @@ internal sealed class Program
                 new EmailGenerationService(),
                 humanDelayService,
                 statistics);
-            var menuService = new MenuService(promptService, consoleUiService, app, configurationService, new InputFileLoader());
+            var menuService = new MenuService(
+                promptService,
+                consoleUiService,
+                app,
+                configurationService,
+                new InputFileLoader(),
+                webhookAuthenticationStorage,
+                webhookService);
 
             var command = runtimeOptions.OriginalArgs
                 .FirstOrDefault(arg => !arg.StartsWith("--", StringComparison.Ordinal))

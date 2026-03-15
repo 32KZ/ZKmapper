@@ -22,6 +22,14 @@ internal static class AppPaths
 
     public static string InputDirectory => Path.Combine(RootDirectory, "input");
 
+    public static string WebhookDirectory => Path.Combine(RootDirectory, "Webhook");
+
+    public static string WebhookAuthenticationDirectory => Path.Combine(WebhookDirectory, "WebhookAuthentication");
+
+    public static string WebhookHeaderNamePath => Path.Combine(WebhookAuthenticationDirectory, "header_name.txt");
+
+    public static string WebhookHeaderSecretPath => Path.Combine(WebhookAuthenticationDirectory, "header_secret.txt");
+
     public static string DefaultBatchInputFilePath => Path.Combine(InputDirectory, "Company.txt");
 
     public static string CreateRunLogPath(DateTime timestamp)
