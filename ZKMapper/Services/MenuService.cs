@@ -36,7 +36,7 @@ internal sealed class MenuService
                 new SelectionPrompt<string>()
                     .Title("Select an option")
                     .PageSize(10)
-                    .AddChoices("Start Mapping", "Map From Input File", "Manage CSV Files", "Options", "Exit"));
+                    .AddChoices("Start Mapping", "Map From Input File", "Manage CSV Files", "Manage Logs", "Options", "Exit"));
 
             AppLog.Step("main menu selection received", "Menu", "show-main-menu", $"selection={selection}");
 
@@ -50,6 +50,9 @@ internal sealed class MenuService
                     break;
                 case "Manage CSV Files":
                     ManageCsv();
+                    break;
+                case "Manage Logs":
+                    ManageLogs();
                     break;
                 case "Options":
                     OptionsMenu();
@@ -105,69 +108,26 @@ internal sealed class MenuService
 
     public void ManageCsv()
     {
-        while (true)
-        {
-            _consoleUiService.ResetScreen();
-            Directory.CreateDirectory(AppPaths.OutputDirectory);
-            var files = Directory
-                .EnumerateFiles(AppPaths.OutputDirectory, "*.csv", SearchOption.TopDirectoryOnly)
-                .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
+        ManageFiles(
+            AppPaths.OutputDirectory,
+            "*.csv",
+            "Stored CSV Files",
+            "CSV File",
+            "excel.exe",
+            "manage-csv",
+            "[CSV]");
+    }
 
-            AppLog.Info("[CSV] listing CSV files", "Menu", "manage-csv", $"fileCount={files.Length}");
-
-            if (files.Length == 0)
-            {
-                AnsiConsole.MarkupLine("[grey]No CSV files found.[/]");
-                AnsiConsole.Prompt(
-                    new SelectionPrompt<string>()
-                        .Title("CSV files")
-                        .PageSize(10)
-                        .AddChoices("Back"));
-                return;
-            }
-
-            var fileChoices = files
-                .Select(Path.GetFileName)
-                .Where(name => !string.IsNullOrWhiteSpace(name))
-                .Cast<string>()
-                .Append("Back")
-                .ToArray();
-
-            var selectedFile = AnsiConsole.Prompt(
-                new SelectionPrompt<string>()
-                    .Title("Stored CSV Files")
-                    .PageSize(10)
-                    .AddChoices(fileChoices));
-
-            if (selectedFile == "Back")
-            {
-                return;
-            }
-
-            var targetFile = files.First(file => string.Equals(Path.GetFileName(file), selectedFile, StringComparison.OrdinalIgnoreCase));
-            var action = PromptSelector(
-                $"CSV File: {selectedFile}",
-                "Open",
-                "Delete",
-                "Back");
-
-            if (action == "Back")
-            {
-                continue;
-            }
-
-            if (action == "Open")
-            {
-                OpenCsvFile(targetFile);
-                continue;
-            }
-
-            AppLog.Info("[CSV] deleting file", "Menu", "manage-csv", $"file={targetFile}");
-            File.Delete(targetFile);
-            _consoleUiService.ResetScreen();
-            AnsiConsole.MarkupLine($"[red]Deleted {Markup.Escape(Path.GetFileName(targetFile))}[/]");
-        }
+    public void ManageLogs()
+    {
+        ManageFiles(
+            AppPaths.LogDirectory,
+            "*.log",
+            "Stored Logs",
+            "Log File",
+            "notepad++.exe",
+            "manage-logs",
+            "[LOG]");
     }
 
     public void OptionsMenu()
@@ -293,10 +253,84 @@ internal sealed class MenuService
                 .AddChoices(choices));
     }
 
-    private void OpenCsvFile(string targetFile)
+    private void ManageFiles(
+        string directory,
+        string searchPattern,
+        string title,
+        string itemLabel,
+        string defaultProgram,
+        string actionName,
+        string logPrefix)
+    {
+        while (true)
+        {
+            _consoleUiService.ResetScreen();
+            Directory.CreateDirectory(directory);
+            var files = Directory
+                .EnumerateFiles(directory, searchPattern, SearchOption.TopDirectoryOnly)
+                .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            AppLog.Info($"{logPrefix} listing files", "Menu", actionName, $"fileCount={files.Length}");
+
+            if (files.Length == 0)
+            {
+                AnsiConsole.MarkupLine("[grey]No files found.[/]");
+                AnsiConsole.Prompt(
+                    new SelectionPrompt<string>()
+                        .Title(title)
+                        .PageSize(10)
+                        .AddChoices("Back"));
+                return;
+            }
+
+            var fileChoices = files
+                .Select(Path.GetFileName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Cast<string>()
+                .Append("Back")
+                .ToArray();
+
+            var selectedFile = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title(title)
+                    .PageSize(10)
+                    .AddChoices(fileChoices));
+
+            if (selectedFile == "Back")
+            {
+                return;
+            }
+
+            var targetFile = files.First(file => string.Equals(Path.GetFileName(file), selectedFile, StringComparison.OrdinalIgnoreCase));
+            var action = PromptSelector(
+                $"{itemLabel}: {selectedFile}",
+                "Open",
+                "Delete",
+                "Back");
+
+            if (action == "Back")
+            {
+                continue;
+            }
+
+            if (action == "Open")
+            {
+                OpenManagedFile(targetFile, defaultProgram, actionName, logPrefix);
+                continue;
+            }
+
+            AppLog.Info($"{logPrefix} deleting file", "Menu", actionName, $"file={targetFile}");
+            File.Delete(targetFile);
+            _consoleUiService.ResetScreen();
+            AnsiConsole.MarkupLine($"[red]Deleted {Markup.Escape(Path.GetFileName(targetFile))}[/]");
+        }
+    }
+
+    private void OpenManagedFile(string targetFile, string defaultProgram, string actionName, string logPrefix)
     {
         _consoleUiService.ResetScreen();
-        var program = _promptService.PromptTextOrDefault("Program to open CSV (leave blank for default app)", string.Empty);
+        var program = _promptService.PromptTextOrDefault("Program to open file (leave blank for default app)", defaultProgram);
 
         if (string.IsNullOrWhiteSpace(program))
         {
@@ -305,7 +339,7 @@ internal sealed class MenuService
                 FileName = targetFile,
                 UseShellExecute = true
             });
-            AppLog.Info("[CSV] opened file with default program", "Menu", "manage-csv", $"file={targetFile}");
+            AppLog.Info($"{logPrefix} opened file with shell default", "Menu", actionName, $"file={targetFile}");
             _consoleUiService.ResetScreen();
             AnsiConsole.MarkupLine($"[green]Opened {Markup.Escape(Path.GetFileName(targetFile))} with the default program.[/]");
             return;
@@ -317,7 +351,7 @@ internal sealed class MenuService
             Arguments = $"\"{targetFile}\"",
             UseShellExecute = true
         });
-        AppLog.Info("[CSV] opened file with selected program", "Menu", "manage-csv", $"file={targetFile};program={program}");
+        AppLog.Info($"{logPrefix} opened file with selected program", "Menu", actionName, $"file={targetFile};program={program}");
         _consoleUiService.ResetScreen();
         AnsiConsole.MarkupLine($"[green]Opened {Markup.Escape(Path.GetFileName(targetFile))} with {Markup.Escape(program)}.[/]");
     }

@@ -77,6 +77,7 @@ internal sealed class ProfileExtractionService
 
     public async Task<ExtractedProfile?> ExtractAsync(
         IPage profilePage,
+        string discoveredName,
         string searchQuery,
         CancellationToken cancellationToken)
     {
@@ -85,30 +86,27 @@ internal sealed class ProfileExtractionService
 
         try
         {
-            await ResolveProfileHeaderAsync(profilePage, cancellationToken);
+            await ResolveProfileExperienceAsync(profilePage, cancellationToken);
 
-            var fullName = await _retryService.ExecuteAsync(
-                token => ExtractFullNameAsync(profilePage, token),
-                cancellationToken);
+            var fullName = CleanProfileName(discoveredName);
 
             if (string.IsNullOrWhiteSpace(fullName))
             {
-                await PlaywrightDiagnostics.TracePageSnapshotAsync(profilePage, "ProfileExtraction", "extract-full-name", cancellationToken);
-                AppLog.Warn($"profileNameExtractionFailed url={profilePage.Url}", "ProfileExtraction", "extract-full-name", $"profileUrl={profilePage.Url}");
+                AppLog.Warn($"profileNameUnavailable url={profilePage.Url}", "ProfileExtraction", "extract-full-name", $"profileUrl={profilePage.Url}");
                 return null;
             }
 
-            AppLog.Data($"profileName={fullName}", "ProfileExtraction", "extract-full-name", $"profileUrl={profilePage.Url};profileName={fullName}");
+            AppLog.Data($"profileName={fullName}", "ProfileExtraction", "use-discovered-name", $"profileUrl={profilePage.Url};profileName={fullName}");
             await _humanDelayService.DelayAsync(DelayProfile.Profile, "pause between profile field extraction steps", cancellationToken);
 
-            var headline = await ExtractHeadlineAsync(profilePage, fullName, cancellationToken);
+            var headline = await ExtractCurrentRoleDescriptionAsync(profilePage, cancellationToken);
             if (string.IsNullOrWhiteSpace(headline))
             {
-                AppLog.Warn("field not found: Headline", "ProfileExtraction", "extract-headline", $"profileUrl={profilePage.Url}");
+                AppLog.Warn("field not found: ExperienceDescription", "ProfileExtraction", "extract-role-description", $"profileUrl={profilePage.Url}");
             }
             else
             {
-                AppLog.Data($"profileHeadline={headline}", "ProfileExtraction", "extract-headline", $"profileUrl={profilePage.Url};profileHeadline={headline}");
+                AppLog.Data($"roleDescription={headline}", "ProfileExtraction", "extract-role-description", $"profileUrl={profilePage.Url};roleDescription={headline}");
             }
 
             var currentTitle = await _retryService.ExecuteAsync(
@@ -142,101 +140,17 @@ internal sealed class ProfileExtractionService
         }
     }
 
-    private static async Task ResolveProfileHeaderAsync(IPage page, CancellationToken cancellationToken)
+    private static async Task ResolveProfileExperienceAsync(IPage page, CancellationToken cancellationToken)
     {
-        AppLog.Step("waiting for profile page readiness", "ProfileExtraction", "wait-for-profile-ready", $"profileUrl={page.Url}");
+        AppLog.Step("waiting for profile experience readiness", "ProfileExtraction", "wait-for-profile-ready", $"profileUrl={page.Url}");
         await page.WaitForLoadStateAsync(LoadState.DOMContentLoaded);
         await page.WaitForSelectorAsync(LinkedInSelectors.MainContentSelector, new PageWaitForSelectorOptions
         {
             State = WaitForSelectorState.Visible,
             Timeout = 8000
         });
-        await WaitForAnyVisibleAsync(page, LinkedInSelectors.ProfileHeaderReadinessCandidates, 8000, cancellationToken, "profile-header");
-        AppLog.Result("profile page ready", "ProfileExtraction", "wait-for-profile-ready", $"profileUrl={page.Url}");
-    }
-
-    private static async Task<string> ExtractFullNameAsync(IPage page, CancellationToken cancellationToken)
-    {
-        foreach (var selector in LinkedInSelectors.ProfileHeaderNameCandidates)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var locator = page.Locator(selector);
-            var count = await locator.CountAsync();
-            for (var index = 0; index < count; index++)
-            {
-                var candidate = locator.Nth(index);
-                if (!await candidate.IsVisibleAsync())
-                {
-                    continue;
-                }
-
-                var text = CleanProfileName(await candidate.InnerTextAsync());
-                if (LooksLikeProfileName(text))
-                {
-                    return text;
-                }
-            }
-        }
-
-        foreach (var selector in LinkedInSelectors.ProfileTopCardCandidates)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var locator = page.Locator(selector).First;
-            if (await locator.CountAsync() == 0 || !await locator.IsVisibleAsync())
-            {
-                continue;
-            }
-
-            var text = await FindBestLineAsync(locator, LooksLikeProfileName, cancellationToken, CleanProfileName);
-            if (!string.IsNullOrWhiteSpace(text))
-            {
-                return text;
-            }
-        }
-
-        return string.Empty;
-    }
-
-    private static async Task<string> ExtractHeadlineAsync(IPage page, string fullName, CancellationToken cancellationToken)
-    {
-        foreach (var selector in LinkedInSelectors.ProfileHeadlineCandidates)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var locator = page.Locator(selector);
-            var count = await locator.CountAsync();
-            for (var index = 0; index < count; index++)
-            {
-                var candidate = locator.Nth(index);
-                if (!await candidate.IsVisibleAsync())
-                {
-                    continue;
-                }
-
-                var text = CleanText(await candidate.InnerTextAsync());
-                if (LooksLikeHeadline(text, fullName))
-                {
-                    return text;
-                }
-            }
-        }
-
-        foreach (var selector in LinkedInSelectors.ProfileTopCardCandidates)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var locator = page.Locator(selector).First;
-            if (await locator.CountAsync() == 0 || !await locator.IsVisibleAsync())
-            {
-                continue;
-            }
-
-            var text = await FindBestLineAsync(locator, candidate => LooksLikeHeadline(candidate, fullName), cancellationToken, CleanText);
-            if (!string.IsNullOrWhiteSpace(text))
-            {
-                return text;
-            }
-        }
-
-        return string.Empty;
+        await WaitForAnyVisibleAsync(page, LinkedInSelectors.ExperienceSectionCandidates, 12000, cancellationToken, "experience-section");
+        AppLog.Result("profile experience ready", "ProfileExtraction", "wait-for-profile-ready", $"profileUrl={page.Url}");
     }
 
     private static async Task<string> ExtractCurrentRoleAsync(IPage page, CancellationToken cancellationToken)
@@ -272,6 +186,36 @@ internal sealed class ProfileExtractionService
             if (titles.Count > 0)
             {
                 return string.Join("; ", titles);
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static async Task<string> ExtractCurrentRoleDescriptionAsync(IPage page, CancellationToken cancellationToken)
+    {
+        foreach (var sectionSelector in LinkedInSelectors.ExperienceSectionCandidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var section = page.Locator(sectionSelector).First;
+            if (await section.CountAsync() == 0 || !await section.IsVisibleAsync())
+            {
+                continue;
+            }
+
+            foreach (var descriptionSelector in LinkedInSelectors.CurrentExperienceDescriptionCandidates)
+            {
+                var description = await FindFirstMatchingTextAsync(section, descriptionSelector, LooksLikeExperienceDescription, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(description))
+                {
+                    return description;
+                }
+            }
+
+            var fallback = await FindBestLineAsync(section, LooksLikeExperienceDescription, cancellationToken, CleanText);
+            if (!string.IsNullOrWhiteSpace(fallback))
+            {
+                return fallback;
             }
         }
 
@@ -397,61 +341,31 @@ internal sealed class ProfileExtractionService
         throw new TimeoutException($"Timed out waiting for {readinessLabel} selectors. Last error: {lastException?.Message}");
     }
 
-    private static bool LooksLikeProfileName(string value)
+    private static bool LooksLikeExperienceDescription(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
             return false;
         }
 
-        if (value.Equals("LinkedIn Member", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        if (Regex.IsMatch(value, @"\b\d+(st|nd|rd|th)\b", RegexOptions.IgnoreCase))
-        {
-            return false;
-        }
-
-        if (value.Contains("followers", StringComparison.OrdinalIgnoreCase) ||
+        if (value.Equals("Experience", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("Show all experiences", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("followers", StringComparison.OrdinalIgnoreCase) ||
             value.Contains("connections", StringComparison.OrdinalIgnoreCase) ||
             value.Contains("contact info", StringComparison.OrdinalIgnoreCase) ||
-            value.Contains("provides services", StringComparison.OrdinalIgnoreCase))
+            value.Contains("full-time", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("part-time", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("contract", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        if (value.Length < 3 || value.Length > 120)
+        if (Regex.IsMatch(value, @"\b(19|20)\d{2}\b"))
         {
             return false;
         }
 
-        return Regex.IsMatch(value, @"\p{L}");
-    }
-
-    private static bool LooksLikeHeadline(string value, string fullName)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return false;
-        }
-
-        if (value.Equals(fullName, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        if (value.Contains("followers", StringComparison.OrdinalIgnoreCase) ||
-            value.Contains("connections", StringComparison.OrdinalIgnoreCase) ||
-            value.Contains("contact info", StringComparison.OrdinalIgnoreCase) ||
-            value.Contains("location", StringComparison.OrdinalIgnoreCase) ||
-            value.Equals("Experience", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        return value.Length >= 4;
+        return value.Length >= 20 && Regex.IsMatch(value, @"\p{L}");
     }
 
     private static bool LooksLikeExperienceTitle(string value)

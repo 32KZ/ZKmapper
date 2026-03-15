@@ -1,4 +1,5 @@
 using Serilog.Context;
+using System.Threading;
 using ZKMapper.Infrastructure;
 using ZKMapper.Models;
 using ZKMapper.Utils;
@@ -68,22 +69,45 @@ internal sealed class MapperApplication
         }
 
         var runMetadata = CreateRunMetadata();
+        var abortRequested = 0;
+        using var abortMonitorCts = new CancellationTokenSource();
+        var abortMonitor = MonitorAbortKeyAsync(
+            () =>
+            {
+                Interlocked.Exchange(ref abortRequested, 1);
+                AppLog.Warn("mapping abort requested by user", "RunCollection", "abort-requested");
+            },
+            abortMonitorCts.Token);
+
         AppLog.Step("starting collection run", "RunCollection", "initialize-run", $"runNumber={runMetadata.RunNumber};startedUtc={runMetadata.StartedUtc:O};queueCount={queue.Count}");
         await using var session = await _browserManager.LaunchAsync(useSavedSession: true, CancellationToken.None);
 
         foreach (var input in queue.Companies)
         {
+            if (Volatile.Read(ref abortRequested) == 1)
+            {
+                break;
+            }
+
             using var csvWriter = new CsvWriterService(input, runMetadata);
             AppLog.Data($"csvOutputPath={csvWriter.OutputPath}", "RunCollection", "initialize-csv-writer", $"outputPath={csvWriter.OutputPath}");
             try
             {
-                await ProcessCompanyAsync(session, input, csvWriter, CancellationToken.None);
+                await ProcessCompanyAsync(session, input, csvWriter, CancellationToken.None, () => Volatile.Read(ref abortRequested) == 1);
                 AppLog.Result("company mapping completed", "RunCollection", "process-company", $"companyName={input.CompanyName};outputPath={csvWriter.OutputPath}");
             }
             catch (Exception ex)
             {
                 AppLog.Error(ex, "company mapping failed and will be skipped", "RunCollection", "process-company", $"companyName={input.CompanyName}");
             }
+        }
+
+        abortMonitorCts.Cancel();
+        await abortMonitor;
+
+        if (Volatile.Read(ref abortRequested) == 1)
+        {
+            _consoleUiService.ShowExtractionError("Mapping aborted by user. CSV output has been saved.");
         }
 
         AppLog.Summary(
@@ -97,7 +121,8 @@ internal sealed class MapperApplication
         PlaywrightSession session,
         CompanyInput input,
         CsvWriterService csvWriter,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<bool> shouldAbort)
     {
         using var timer = ExecutionTimer.Start("ProcessCompany");
 
@@ -108,6 +133,11 @@ internal sealed class MapperApplication
 
             for (var titleIndex = 0; titleIndex < input.TitleFilters.Count; titleIndex++)
             {
+                if (shouldAbort())
+                {
+                    return;
+                }
+
                 var keyword = input.TitleFilters[titleIndex].Trim();
                 var searchUrl = _peopleSearchUrlBuilder.BuildPeopleSearchUrl(slug, keyword, regionId);
 
@@ -147,11 +177,17 @@ internal sealed class MapperApplication
                         continue;
                     }
 
+                    _consoleUiService.ShowAbortHint();
                     await _consoleUiService.RunMappingProgressAsync(
                         input.CompanyName,
                         targets,
                         async (target, _, _) =>
                         {
+                            if (shouldAbort())
+                            {
+                                return;
+                            }
+
                             using (LogContext.PushProperty("ProfileUrl", target.Href))
                             {
                                 AppLog.Next("open profile", "ProcessCompany", "open-profile", $"profileUrl={target.Href}");
@@ -163,7 +199,7 @@ internal sealed class MapperApplication
 
                                 if (profilePage is null)
                                 {
-                                    _consoleUiService.ShowExtractionError("Failed to extract profile header");
+                                    _consoleUiService.ShowExtractionError("Failed to open profile experience");
                                     return;
                                 }
 
@@ -172,10 +208,10 @@ internal sealed class MapperApplication
                                 try
                                 {
                                     AppLog.Next("extract profile details", "ProcessCompany", "extract-profile", $"profileUrl={target.Href}");
-                                    var profile = await _profileExtractionService.ExtractAsync(profilePage, keyword, cancellationToken);
+                                    var profile = await _profileExtractionService.ExtractAsync(profilePage, target.DisplayName, keyword, cancellationToken);
                                     if (profile is null)
                                     {
-                                        _consoleUiService.ShowExtractionError("Failed to extract profile header");
+                                        _consoleUiService.ShowExtractionError("Failed to extract profile experience");
                                         return;
                                     }
 
@@ -206,7 +242,7 @@ internal sealed class MapperApplication
                                 catch (Exception ex)
                                 {
                                     AppLog.Error(ex, $"Extraction failure for target {target.Href}", "ProcessCompany", "extract-profile", $"profileUrl={target.Href}");
-                                    _consoleUiService.ShowExtractionError("Failed to extract profile header");
+                                    _consoleUiService.ShowExtractionError("Failed to extract profile experience");
                                 }
                                 finally
                                 {
@@ -217,13 +253,44 @@ internal sealed class MapperApplication
                                     await _humanDelayService.DelayAsync(DelayProfile.Navigation, "pause after closing profile tab and returning to results", cancellationToken);
                                 }
                             }
-                        });
+                        },
+                        shouldAbort);
+
+                    if (shouldAbort())
+                    {
+                        return;
+                    }
 
                     AppLog.Next("advance to next query if available", "ProcessCompany", "next-query", $"query={keyword}");
                     await _humanDelayService.DelayAsync(DelayProfile.Navigation, "pause between company title queries", cancellationToken);
                 }
             }
         }
+    }
+
+    private static Task MonitorAbortKeyAsync(Action onAbortRequested, CancellationToken cancellationToken)
+    {
+        return Task.Run(async () =>
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                if (Console.KeyAvailable)
+                {
+                    var key = Console.ReadKey(intercept: true).Key;
+                    if (key == ConsoleKey.Escape)
+                    {
+                        onAbortRequested();
+                        return;
+                    }
+                }
+
+                await Task.Delay(100, cancellationToken);
+            }
+        }, CancellationToken.None).ContinueWith(
+            _ => Task.CompletedTask,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default).Unwrap();
     }
 
     private static RunMetadata CreateRunMetadata()

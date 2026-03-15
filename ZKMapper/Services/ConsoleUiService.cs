@@ -49,7 +49,8 @@ internal sealed class ConsoleUiService
     public async Task RunMappingProgressAsync(
         string companyName,
         IReadOnlyList<ContactDiscoveryTarget> targets,
-        Func<ContactDiscoveryTarget, int, int, Task> processTargetAsync)
+        Func<ContactDiscoveryTarget, int, int, Task> processTargetAsync,
+        Func<bool>? shouldAbort = null)
     {
         await AnsiConsole.Progress()
             .AutoClear(false)
@@ -67,6 +68,11 @@ internal sealed class ConsoleUiService
 
                 for (var index = 0; index < targets.Count; index++)
                 {
+                    if (shouldAbort?.Invoke() == true)
+                    {
+                        break;
+                    }
+
                     await processTargetAsync(targets[index], index + 1, targets.Count);
                     task.Increment(1);
                 }
@@ -75,10 +81,16 @@ internal sealed class ConsoleUiService
         AnsiConsole.WriteLine();
     }
 
+    public void ShowAbortHint()
+    {
+        AnsiConsole.MarkupLine("[yellow]Press ESC to abort after the current profile is finished.[/]");
+        AnsiConsole.WriteLine();
+    }
+
     public void ShowExtractedProfile(ExtractedProfile profile)
     {
         AnsiConsole.MarkupLine($"[green]OK[/] {Escape(profile.FullName)}");
-        AnsiConsole.MarkupLine($"  Headline: {Escape(NullSafe(profile.Headline))}");
+        AnsiConsole.MarkupLine($"  Description: {Escape(NullSafe(profile.Headline))}");
         AnsiConsole.MarkupLine($"  Role: {Escape(NullSafe(profile.CurrentJobTitles))}");
         AnsiConsole.WriteLine();
     }

@@ -125,6 +125,15 @@ internal static class LinkedInSelectors
         "div.t-bold span[aria-hidden='true']"
     };
 
+    public static readonly string[] CurrentExperienceDescriptionCandidates =
+    {
+        "li div.inline-show-more-text span[aria-hidden='true']",
+        "li div.pvs-list__outer-container span[aria-hidden='true']",
+        "li div.display-flex.full-width span[aria-hidden='true']",
+        "li span[aria-hidden='true']",
+        "div.inline-show-more-text span[aria-hidden='true']"
+    };
+
     public static string BuildProfileLinkSelector(string href)
     {
         var relativeHref = TryGetRelativeLinkedInPath(href);
