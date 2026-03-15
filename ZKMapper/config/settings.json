@@ -9,8 +9,8 @@
   },
   "Webhook": {
     "ActiveMode": "Production",
-    "ProductionWebhookUrl": "https://n8n.srv890565.hstgr.cloud/webhook/78cff389-e6a8-409e-ae83-006da952b6ac",
-    "TestWebhookUrl": "https://n8n.srv890565.hstgr.cloud/webhook-test/78cff389-e6a8-409e-ae83-006da952b6ac",
+    "ProductionWebhookUrl": "",
+    "TestWebhookUrl": "",
     "HeaderAuthenticationEnabled": true
   }
 }
