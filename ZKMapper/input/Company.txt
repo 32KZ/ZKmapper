@@ -1,3 +1,29 @@
-Camunda|camunda.com|https://linkedin.com/company/camunda|germany|HR,Learning and Development,Procurement,IT
-#Pfizer|pfizer.com|https://linkedin.com/company/pfizer|germany|HR,L&D,Procurement
-#SAP|sap.com|https://linkedin.com/company/sap|germany|HR,IT
+# ZKMapper Company Input Template
+# MAKE SURE YOU SAVE FILE BEFORE HAVING IT PULL THE FILE.
+# Uncomment a company line to include it in a run.
+# Format:
+# CompanyName|CompanyDomain|LinkedInCompanyUrl|Country|Title1,Title2,Title3
+#
+# Rules:
+# - Use exactly 5 pipe-delimited fields per active line.
+# - Separate titles with commas.
+# - Lines starting with # are ignored.
+# - Supported countries in this build:
+#   germany
+#   uk
+#   united kingdom
+#   us
+#   usa
+#   united states
+#
+# Example:
+# Contoso|contoso.com|https://www.linkedin.com/company/contoso|usa|HR,Learning and Development,Procurement,IT
+#
+# Ready-to-edit templates:
+# Company Name|company.com|https://www.linkedin.com/company/company-slug|usa|HR,Learning and Development,Procurement,IT
+# Company Name|company.com|https://www.linkedin.com/company/company-slug|uk|HR,L&D,Talent Acquisition,Operations
+# Company Name|company.com|https://www.linkedin.com/company/company-slug|germany|HR,IT,Procurement,Finance
+#
+# Real examples:
+#Camunda|camunda.com|https://www.linkedin.com/company/camunda|germany|HR,Learning and Development,Procurement,IT
+Pfizer|pfizer.com|https://www.linkedin.com/company/pfizer|netherlands|L&D

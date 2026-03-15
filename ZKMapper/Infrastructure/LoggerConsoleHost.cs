@@ -5,7 +5,7 @@ namespace ZKMapper.Infrastructure;
 
 internal static class LoggerConsoleHost
 {
-    public static void Start(string logFilePath)
+    public static void Start(string logFilePath, string runId)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(logFilePath)!);
         if (!File.Exists(logFilePath))
@@ -64,8 +64,9 @@ Get-Content -LiteralPath '{escapedPath}' -Wait -Tail 0 | ForEach-Object {{
 ";
         var encodedCommand = Convert.ToBase64String(Encoding.Unicode.GetBytes(powerShellCommand));
 
+        var escapedRunId = runId.Replace("\"", "\"\"", StringComparison.Ordinal);
         var startCommand =
-            $"start \"ZKMapper Logs\" cmd.exe /k \"title ZKMapper Logs && mode con cols=180 lines=9999 && powershell.exe -NoLogo -NoExit -EncodedCommand {encodedCommand}\"";
+            $"start \"ZKMapper Logs {escapedRunId}\" cmd.exe /k \"title ZKMapper Logs [{escapedRunId}] && mode con cols=180 lines=9999 && powershell.exe -NoLogo -NoExit -EncodedCommand {encodedCommand}\"";
 
         Process.Start(new ProcessStartInfo
         {

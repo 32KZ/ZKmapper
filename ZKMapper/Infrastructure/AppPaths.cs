@@ -32,8 +32,13 @@ internal static class AppPaths
 
     public static string DefaultBatchInputFilePath => Path.Combine(InputDirectory, "Company.txt");
 
-    public static string CreateRunLogPath(DateTime timestamp)
+    public static string CreateRunId(DateTime timestamp)
     {
-        return Path.Combine(LogDirectory, $"run_{timestamp:yyyy_MM_dd_HH_mm_ss}.log");
+        return timestamp.ToString("yyyy_MM_dd_HH_mm_ss");
+    }
+
+    public static string CreateRunLogPath(string runId)
+    {
+        return Path.Combine(LogDirectory, $"run_{runId}.log");
     }
 }

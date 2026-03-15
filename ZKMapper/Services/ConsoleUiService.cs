@@ -6,6 +6,15 @@ namespace ZKMapper.Services;
 
 internal sealed class ConsoleUiService
 {
+    private string? _runId;
+    private string? _logFilePath;
+
+    public void ConfigureRunContext(string runId, string logFilePath)
+    {
+        _runId = runId;
+        _logFilePath = logFilePath;
+    }
+
     public void ResetScreen()
     {
         AnsiConsole.Clear();
@@ -18,6 +27,16 @@ internal sealed class ConsoleUiService
         AnsiConsole.MarkupLine("[red]|[/]     [bold red]★ ★ ★ ZKMapper ★ ★ ★[/]    [red]|[/]");
         AnsiConsole.MarkupLine("[red]|[/] [white]  LinkedIn Company Mapper   [/][red]|[/]");
         AnsiConsole.MarkupLine("[red]+-----------------------------+[/]");
+        if (!string.IsNullOrWhiteSpace(_runId))
+        {
+            AnsiConsole.MarkupLine($"[grey]Run ID:[/] {Escape(_runId)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(_logFilePath))
+        {
+            AnsiConsole.MarkupLine($"[grey]Log File:[/] {Escape(Path.GetFileName(_logFilePath))}");
+        }
+
         AnsiConsole.WriteLine();
     }
 

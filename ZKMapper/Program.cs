@@ -24,7 +24,7 @@ internal sealed class Program
         Directory.CreateDirectory(AppPaths.WebhookDirectory);
         Directory.CreateDirectory(AppPaths.WebhookAuthenticationDirectory);
 
-        LoggerConsoleHost.Start(runtimeOptions.LogFilePath);
+        LoggerConsoleHost.Start(runtimeOptions.LogFilePath, runtimeOptions.RunId);
 
         AppLog.TraceEnabled = runtimeOptions.VerboseEnabled;
         Log.Logger = LoggingSetup.CreateLogger(runtimeOptions);
@@ -38,6 +38,7 @@ internal sealed class Program
             var configurationService = new ConfigurationService();
             var promptService = new ConsolePromptService();
             var consoleUiService = new ConsoleUiService();
+            consoleUiService.ConfigureRunContext(runtimeOptions.RunId, runtimeOptions.LogFilePath);
             var webhookAuthenticationStorage = new WebhookAuthenticationStorageService();
             var webhookService = new WebhookService(configurationService, webhookAuthenticationStorage);
             var humanDelayService = new HumanDelayService(configurationService);
@@ -105,6 +106,7 @@ internal sealed class Program
     private static RuntimeOptions ParseRuntimeOptions(string[] args, DateTime runStartedAt)
     {
         var verboseEnabled = true;
+        var runId = AppPaths.CreateRunId(runStartedAt);
 
         foreach (var arg in args)
         {
@@ -119,12 +121,13 @@ internal sealed class Program
             }
         }
 
-        return new RuntimeOptions(verboseEnabled, AppPaths.CreateRunLogPath(runStartedAt), args);
+        return new RuntimeOptions(verboseEnabled, runId, AppPaths.CreateRunLogPath(runId), args);
     }
 
     private static void LogStartup(RuntimeOptions runtimeOptions)
     {
         AppLog.Step("Application start", "ProgramStart", "initialize", $"logFile={runtimeOptions.LogFilePath}");
+        AppLog.Data($"runId={runtimeOptions.RunId}", "ProgramStart", "run-id", $"runId={runtimeOptions.RunId}");
         AppLog.Data($".NET runtime={Environment.Version}", "ProgramStart", "runtime-version", $"runtime={Environment.Version}");
         AppLog.Data($"workingDirectory={AppPaths.RootDirectory}", "ProgramStart", "working-directory", $"cwd={AppPaths.RootDirectory}");
         AppLog.Data($"cliArgs={string.Join(' ', runtimeOptions.OriginalArgs)}", "ProgramStart", "cli-arguments", $"args={string.Join(' ', runtimeOptions.OriginalArgs)}");

@@ -34,12 +34,12 @@ internal static class AppLog
 
     public static void Warn(Exception ex, string message, string step = "", string action = "", string data = "", string duration = "")
     {
-        Context(step, action, data, duration).Warning(ex, "{Prefix} {Message}", "[WARN]", message);
+        SafeWrite(() => Context(step, action, data, duration).Warning(ex, "{Prefix} {Message}", "[WARN]", message), "[WARN]", message);
     }
 
     public static void Error(Exception ex, string message, string step = "", string action = "", string data = "", string duration = "")
     {
-        Context(step, action, data, duration).Error(ex, "{Prefix} {Message}", "[ERROR]", message);
+        SafeWrite(() => Context(step, action, data, duration).Error(ex, "{Prefix} {Message}", "[ERROR]", message), "[ERROR]", message);
     }
 
     public static void Step(string message, string step, string action = "", string data = "")
@@ -94,7 +94,7 @@ internal static class AppLog
 
     private static void Write(LogEventLevel level, string prefix, string message, string step, string action, string data, string duration)
     {
-        Context(step, action, data, duration).Write(level, "{Prefix} {Message}", prefix, message);
+        SafeWrite(() => Context(step, action, data, duration).Write(level, "{Prefix} {Message}", prefix, message), prefix, message);
     }
 
     private static ILogger Context(string step, string action, string data, string duration)
@@ -113,5 +113,26 @@ internal static class AppLog
         }
 
         return $"{elapsed.TotalMilliseconds:F0}ms";
+    }
+
+    private static void SafeWrite(Action writeAction, string prefix, string message)
+    {
+        try
+        {
+            writeAction();
+        }
+        catch (Exception ex)
+        {
+            var previousColor = Console.ForegroundColor;
+            try
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.Error.WriteLine($"Logging failed ({prefix} {message}): {ex.Message}");
+            }
+            finally
+            {
+                Console.ForegroundColor = previousColor;
+            }
+        }
     }
 }

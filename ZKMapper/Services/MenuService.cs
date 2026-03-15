@@ -448,9 +448,20 @@ internal sealed class MenuService
             }
 
             AppLog.Info($"{logPrefix} deleting file", "Menu", actionName, $"file={targetFile}");
-            File.Delete(targetFile);
-            _consoleUiService.ResetScreen();
-            AnsiConsole.MarkupLine($"[red]Deleted {Markup.Escape(Path.GetFileName(targetFile))}[/]");
+
+            try
+            {
+                File.Delete(targetFile);
+                _consoleUiService.ResetScreen();
+                AnsiConsole.MarkupLine($"[red]Deleted {Markup.Escape(Path.GetFileName(targetFile))}[/]");
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn(ex, $"{logPrefix} delete failed", "Menu", actionName, $"file={targetFile}");
+                _consoleUiService.ResetScreen();
+                AnsiConsole.MarkupLine($"[yellow]Could not delete {Markup.Escape(Path.GetFileName(targetFile))}.[/]");
+                AnsiConsole.MarkupLine($"[yellow]Error:[/] {Markup.Escape(ex.Message)}");
+            }
         }
     }
 
