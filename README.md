@@ -10,6 +10,15 @@ Playwright allows browser sessions to be saved and reused so the application can
 
 Spectre.Console enables modern interactive command-line applications with arrow-key navigation and rich UI components. :contentReference[oaicite:1]{index=1}
 
+---
+
+# IMPORTANT Security Notice
+
+ZKMapper uses saved browser session state to maintain authentication.
+
+These session files may contain sensitive cookies and authentication data.
+
+They must **never be committed to public repositories**.
 
 ---
 
@@ -81,7 +90,6 @@ Supported patterns include:
 
 - `firstname.lastname@domain`
 - `firstinitial.lastname@domain`
-- `firstname.lastnameinitial@domain`
 - `firstnamelastname@domain`
 
 
@@ -175,7 +183,7 @@ Company|Domain|LinkedInURL|Country|Keywords
 Example entry:
 
 ```
-Camunda|camunda.com|https://linkedin.com/company/camunda|germany|HR,L&D
+pepsico|pepsoco.com|https://linkedin.com/company/pepsico|germany|HR,L&D
 ```
 
 This enables automated mapping runs across multiple organizations.
@@ -208,51 +216,6 @@ Logs include:
 The following features represent the **long-term roadmap** for ZKMapper.
 
 These capabilities will transform the mapper into a fully scalable data-collection system.
-
-## Parallel Scraping
-
-Ability to run multiple profile extraction workers simultaneously to accelerate mapping speed.
-
-Benefits:
-
-- Faster company mapping
-- Improved throughput for large organizations
-
-
----
-
-## Distributed Mapping
-
-Support for distributed execution across multiple machines.
-
-Possible architecture:
-
-```
-Mapping Coordinator
-     │
-Worker Node A
-Worker Node B
-Worker Node C
-```
-
-This would allow large company mappings to complete significantly faster.
-
-
----
-
-## Intelligent Email Pattern Detection
-
-Automatically detect corporate email formats based on discovered data patterns.
-
-Example:
-
-```
-firstname.lastname@company.com
-firstinitiallastname@company.com
-```
-
-The system could infer patterns by observing known employee contact formats.
-
 
 ---
 
@@ -292,17 +255,6 @@ Core technologies used in this project:
 - **Serilog**
 - **CsvHelper**
 - **Polly** (retry policies)
-
-
----
-
-# Security Notice
-
-ZKMapper uses saved browser session state to maintain authentication.
-
-These session files may contain sensitive cookies and authentication data.
-
-They must **never be committed to public repositories**.
 
 
 ---
