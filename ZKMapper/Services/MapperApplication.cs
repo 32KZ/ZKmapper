@@ -177,6 +177,7 @@ internal sealed class MapperApplication
                                     SearchCountry = input.SearchCountry,
                                     SearchQuery = profile.SearchQuery,
                                     FullName = profile.FullName,
+                                    Headline = profile.Headline,
                                     CurrentJobTitles = profile.CurrentJobTitles,
                                     ProfileURL = profile.ProfileUrl,
                                     EmailPrimary = emails.Primary,

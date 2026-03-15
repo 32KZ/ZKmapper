@@ -53,6 +53,22 @@ internal static class PlaywrightLocatorExtensions
         return null;
     }
 
+    public static async Task WaitForVisibleAsync(
+        this IPage page,
+        string selector,
+        int timeoutMs,
+        CancellationToken cancellationToken)
+    {
+        AppLog.Trace($"wait for selector {selector}", "SelectorLookup", "wait-for-visible", $"selector={selector};timeoutMs={timeoutMs}");
+        await page.Locator(selector).First.WaitForAsync(new LocatorWaitForOptions
+        {
+            State = WaitForSelectorState.Visible,
+            Timeout = timeoutMs
+        });
+        cancellationToken.ThrowIfCancellationRequested();
+        AppLog.Result($"selector resolved: {selector}", "SelectorLookup", "wait-for-visible", $"selector={selector};timeoutMs={timeoutMs}");
+    }
+
     private static async Task<bool> IsVisibleWithinAsync(ILocator locator)
     {
         try

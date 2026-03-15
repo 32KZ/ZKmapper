@@ -56,16 +56,71 @@ internal static class LinkedInSelectors
 
     public static readonly string[] ProfileHeaderNameCandidates =
     {
+        "main h1",
+        "main h1 span[aria-hidden='true']",
         "h1",
-        "main h1[dir='ltr']",
-        "section h1"
+        "main section h1",
+        "div.ph5 h1",
+        "div.pv-text-details__left-panel h1",
+        "section[class*='top-card'] h1",
+        "main div[class*='text-heading']"
+    };
+
+    public static readonly string[] ProfileShellCandidates =
+    {
+        "main[role='main']",
+        "main",
+        "section[class*='top-card']",
+        "div.pv-text-details__left-panel",
+        "div.ph5"
+    };
+
+    public static readonly string[] ProfileTopCardCandidates =
+    {
+        "section[class*='top-card']",
+        "div.pv-text-details__left-panel",
+        "div.ph5",
+        "main section.artdeco-card",
+        "main div[class*='profile-top-card']"
+    };
+
+    public static readonly string[] ProfileHeaderReadinessCandidates =
+    {
+        "main h1",
+        "div.pv-text-details__left-panel h1",
+        "section[class*='top-card'] h1",
+        "main div.text-body-medium",
+        "main div[class*='profile-top-card']"
+    };
+
+    public static readonly string[] ProfileHeadlineCandidates =
+    {
+        "main div.text-body-medium.break-words",
+        "main div.text-body-medium",
+        "main .text-body-medium",
+        "main .text-body-medium.break-words",
+        "div.ph5 div.text-body-medium",
+        "div.pv-text-details__left-panel div.text-body-medium",
+        "section[class*='top-card'] div.text-body-medium",
+        "main div[class*='text-body-medium']"
     };
 
     public static readonly string[] ExperienceSectionCandidates =
     {
         "section:has(#experience)",
         "section[aria-label*='Experience']",
-        "section:has-text('Experience')"
+        "section:has-text('Experience')",
+        "main section[id*='experience']",
+        "main div:has(> #experience)"
+    };
+
+    public static readonly string[] CurrentExperienceTitleCandidates =
+    {
+        "li div.t-bold span[aria-hidden='true']",
+        "li span[aria-hidden='true']",
+        "div[data-view-name='profile-component-entity'] div.t-bold span[aria-hidden='true']",
+        "div[data-view-name='profile-component-entity'] span[aria-hidden='true']",
+        "div.t-bold span[aria-hidden='true']"
     };
 
     public static string BuildProfileLinkSelector(string href)

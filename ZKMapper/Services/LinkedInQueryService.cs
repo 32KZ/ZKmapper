@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using ZKMapper.Infrastructure;
 using ZKMapper.Models;
@@ -6,6 +7,8 @@ namespace ZKMapper.Services;
 
 internal sealed class LinkedInQueryService
 {
+    private const string PendingProfileNamePlaceholder = "<pending-profile-name>";
+
     private readonly RetryService _retryService;
     private readonly ScrollExhaustionService _scrollExhaustionService;
     private readonly HumanDelayService _humanDelayService;
@@ -163,29 +166,6 @@ internal sealed class LinkedInQueryService
             cancellationToken.ThrowIfCancellationRequested();
             var card = cards.Nth(index);
             var position = index + 1;
-            var displayName = await ExtractCardNameAsync(card, cancellationToken);
-            if (string.IsNullOrWhiteSpace(displayName))
-            {
-                skippedBlank++;
-                AppLog.Data(
-                    $"skipped hero card due to blank name;position={position}",
-                    "ProfileDiscovery",
-                    "capture-visible-targets",
-                    $"query={query};position={position};reason=blank-name");
-                continue;
-            }
-
-            if (displayName.Equals("LinkedIn Member", StringComparison.OrdinalIgnoreCase))
-            {
-                skippedAnonymous++;
-                AppLog.Data(
-                    $"skipped hero card due to anonymous name;position={position}",
-                    "ProfileDiscovery",
-                    "capture-visible-targets",
-                    $"query={query};position={position};reason=linkedin-member");
-                continue;
-            }
-
             var href = await ExtractCardHrefAsync(card, cancellationToken);
 
             if (string.IsNullOrWhiteSpace(href))
@@ -215,16 +195,47 @@ internal sealed class LinkedInQueryService
                 continue;
             }
 
+            if (await IsAnonymousHeroCardAsync(card, cancellationToken))
+            {
+                skippedAnonymous++;
+                AppLog.Data(
+                    $"hero card anonymous label detected and skipped;position={position};url={absoluteHref}",
+                    "ProfileDiscovery",
+                    "capture-visible-targets",
+                    $"query={query};position={position};reason=linkedin-member;profileUrl={absoluteHref}");
+                continue;
+            }
+
             if (discovered.ContainsKey(absoluteHref))
             {
                 skippedDuplicate++;
                 continue;
             }
 
+            var advisoryName = await ExtractCardNameAsync(card, cancellationToken);
+            if (string.IsNullOrWhiteSpace(advisoryName))
+            {
+                skippedBlank++;
+                AppLog.Data(
+                    $"hero card href accepted despite blank name;position={position};url={absoluteHref}",
+                    "ProfileDiscovery",
+                    "capture-visible-targets",
+                    $"query={query};position={position};reason=blank-name-accepted;profileUrl={absoluteHref}");
+            }
+
+            var displayName = string.IsNullOrWhiteSpace(advisoryName)
+                ? PendingProfileNamePlaceholder
+                : advisoryName;
+
             discovered[absoluteHref] = new ContactDiscoveryTarget(absoluteHref, displayName, absoluteHref);
             added++;
             AppLog.Data(
-                $"added hero card target;name={displayName};url={absoluteHref};position={position}",
+                $"heroCardParsed name={displayName} url={absoluteHref}",
+                "ProfileDiscovery",
+                "capture-visible-targets",
+                $"query={query};profileName={displayName};profileUrl={absoluteHref};position={position}");
+            AppLog.Data(
+                $"hero card queued for profile-resolution;name={displayName};url={absoluteHref};position={position}",
                 "ProfileDiscovery",
                 "capture-visible-targets",
                 $"query={query};profileName={displayName};profileUrl={absoluteHref};position={position}");
@@ -246,6 +257,36 @@ internal sealed class LinkedInQueryService
 
     private static async Task<string?> ExtractCardNameAsync(ILocator card, CancellationToken cancellationToken)
     {
+        foreach (var candidate in await GetHeroCardTextCandidatesAsync(card, cancellationToken))
+        {
+            if (IsJunkHeroCardName(candidate))
+            {
+                continue;
+            }
+
+            return candidate;
+        }
+
+        return null;
+    }
+
+    private static async Task<bool> IsAnonymousHeroCardAsync(ILocator card, CancellationToken cancellationToken)
+    {
+        foreach (var candidate in await GetHeroCardTextCandidatesAsync(card, cancellationToken))
+        {
+            if (candidate.Equals("LinkedIn Member", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static async Task<IReadOnlyList<string>> GetHeroCardTextCandidatesAsync(ILocator card, CancellationToken cancellationToken)
+    {
+        var values = new List<string>();
+
         foreach (var selector in LinkedInSelectors.HeroCardNameCandidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -255,26 +296,61 @@ internal sealed class LinkedInQueryService
                 continue;
             }
 
-            var raw = (await locator.InnerTextAsync())?.Trim();
-            if (string.IsNullOrWhiteSpace(raw))
+            var raw = CleanText(await locator.InnerTextAsync());
+            if (!string.IsNullOrWhiteSpace(raw))
             {
-                continue;
+                values.Add(raw);
             }
-
-            if (raw.Equals("LinkedIn Member", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (raw.Length < 3)
-            {
-                continue;
-            }
-
-            return raw;
         }
 
-        return null;
+        var cardText = await card.InnerTextAsync();
+        if (!string.IsNullOrWhiteSpace(cardText))
+        {
+            values.AddRange(cardText
+                .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .Select(CleanText)
+                .Where(text => !string.IsNullOrWhiteSpace(text)));
+        }
+
+        return values
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static bool IsJunkHeroCardName(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return true;
+        }
+
+        var normalized = CleanText(value);
+        if (normalized.Equals("LinkedIn Member", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (normalized.StartsWith("·", StringComparison.Ordinal) || normalized.StartsWith("Â·", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (normalized.StartsWith("Provides services", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (Regex.IsMatch(normalized, @"^\d+(st|nd|rd)(\+)?$", RegexOptions.IgnoreCase))
+        {
+            return true;
+        }
+
+        if (normalized.Length < 3)
+        {
+            return true;
+        }
+
+        return Regex.IsMatch(normalized, @"^[\p{P}\p{S}\d]+$");
     }
 
     private static async Task<string?> ExtractCardHrefAsync(ILocator card, CancellationToken cancellationToken)
@@ -319,5 +395,12 @@ internal sealed class LinkedInQueryService
             await _humanDelayService.DelayAsync(DelayProfile.Scroll, "wait after clicking show more results", token);
             return true;
         }, cancellationToken);
+    }
+
+    private static string CleanText(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : Regex.Replace(value, "\\s+", " ").Trim();
     }
 }

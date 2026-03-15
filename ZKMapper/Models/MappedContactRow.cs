@@ -6,6 +6,7 @@ internal sealed class MappedContactRow
     public string SearchCountry { get; init; } = string.Empty;
     public string SearchQuery { get; init; } = string.Empty;
     public string FullName { get; init; } = string.Empty;
+    public string Headline { get; init; } = string.Empty;
     public string CurrentJobTitles { get; init; } = string.Empty;
     public string ProfileURL { get; init; } = string.Empty;
     public string EmailPrimary { get; init; } = string.Empty;
