@@ -105,8 +105,24 @@ internal static class LinkedInSelectors
         "main .text-body-medium.break-words"
     };
 
+    public static readonly string[] AboutSectionCandidates =
+    {
+        "section:has(h2:has-text('About'))",
+        "section[aria-label*='About']",
+        "section:has-text('About')"
+    };
+
+    public static readonly string[] AboutDescriptionCandidates =
+    {
+        "[data-testid='expandable-text-box']",
+        "div.inline-show-more-text span[aria-hidden='true']",
+        "span[aria-hidden='true']",
+        "p"
+    };
+
     public static readonly string[] ExperienceSectionCandidates =
     {
+        "section:has(h2:has-text('Experience'))",
         "section#experience",
         "section[aria-label*='Experience']",
         "section:has-text('Experience')",
@@ -114,8 +130,20 @@ internal static class LinkedInSelectors
         "main div:has(> #experience)"
     };
 
+    public static readonly string[] CurrentExperienceItemCandidates =
+    {
+        "[componentkey^='entity-collection-item']",
+        "[componentkey*='entity-collection-item']",
+        "div[data-view-name='profile-component-entity']",
+        "li",
+        "div"
+    };
+
     public static readonly string[] CurrentExperienceTitleCandidates =
     {
+        "a p:first-of-type",
+        "div > p:first-of-type",
+        "p:first-of-type",
         "h3",
         "span[aria-hidden='true']",
         "li div.t-bold span[aria-hidden='true']",

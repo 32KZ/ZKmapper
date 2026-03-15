@@ -70,14 +70,21 @@ internal sealed class MapperApplication
 
         var runMetadata = CreateRunMetadata();
         var abortRequested = 0;
+        void RequestAbort(string source)
+        {
+            if (Interlocked.Exchange(ref abortRequested, 1) == 1)
+            {
+                return;
+            }
+
+            AppLog.Warn("mapping abort requested by user", "RunCollection", "abort-requested", $"source={source}");
+        }
+
         using var abortMonitorCts = new CancellationTokenSource();
         var abortMonitor = MonitorAbortKeyAsync(
-            () =>
-            {
-                Interlocked.Exchange(ref abortRequested, 1);
-                AppLog.Warn("mapping abort requested by user", "RunCollection", "abort-requested");
-            },
+            () => RequestAbort("keyboard"),
             abortMonitorCts.Token);
+        using var abortWindow = AbortWindowService.Start(() => RequestAbort("abort-window"));
 
         AppLog.Step("starting collection run", "RunCollection", "initialize-run", $"runNumber={runMetadata.RunNumber};startedUtc={runMetadata.StartedUtc:O};queueCount={queue.Count}");
         await using var session = await _browserManager.LaunchAsync(useSavedSession: true, CancellationToken.None);
@@ -107,7 +114,7 @@ internal sealed class MapperApplication
 
         if (Volatile.Read(ref abortRequested) == 1)
         {
-            _consoleUiService.ShowExtractionError("Mapping aborted by user. CSV output has been saved.");
+            _consoleUiService.ShowExtractionError("Mapping aborted by user. CSV output has been saved. Returning to main menu.");
         }
 
         AppLog.Summary(

@@ -14,10 +14,10 @@ internal sealed class ConsoleUiService
 
     public void ShowStartupBanner()
     {
-        AnsiConsole.MarkupLine("[deepskyblue1]+-------------------------------+[/]");
-        AnsiConsole.MarkupLine("[deepskyblue1]|[/]           [deepskyblue1]ZKMapper[/]           [deepskyblue1]|[/]");
-        AnsiConsole.MarkupLine("[deepskyblue1]|[/] [grey]  LinkedIn Company Mapper   [/][deepskyblue1]|[/]");
-        AnsiConsole.MarkupLine("[deepskyblue1]+-------------------------------+[/]");
+        AnsiConsole.MarkupLine("[red]+-----------------------------+[/]");
+        AnsiConsole.MarkupLine("[red]|[/]     [bold red]★ ★ ★ ZKMapper ★ ★ ★[/]    [red]|[/]");
+        AnsiConsole.MarkupLine("[red]|[/] [white]  LinkedIn Company Mapper   [/][red]|[/]");
+        AnsiConsole.MarkupLine("[red]+-----------------------------+[/]");
         AnsiConsole.WriteLine();
     }
 
@@ -83,7 +83,7 @@ internal sealed class ConsoleUiService
 
     public void ShowAbortHint()
     {
-        AnsiConsole.MarkupLine("[yellow]Press ESC to abort after the current profile is finished.[/]");
+        AnsiConsole.MarkupLine("[yellow]Use the abort window or press ESC to stop after the current profile is finished.[/]");
         AnsiConsole.WriteLine();
     }
 

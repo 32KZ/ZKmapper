@@ -99,10 +99,10 @@ internal sealed class ProfileExtractionService
             AppLog.Data($"profileName={fullName}", "ProfileExtraction", "use-discovered-name", $"profileUrl={profilePage.Url};profileName={fullName}");
             await _humanDelayService.DelayAsync(DelayProfile.Profile, "pause between profile field extraction steps", cancellationToken);
 
-            var headline = await ExtractCurrentRoleDescriptionAsync(profilePage, cancellationToken);
+            var headline = await ExtractAboutDescriptionAsync(profilePage, cancellationToken);
             if (string.IsNullOrWhiteSpace(headline))
             {
-                AppLog.Warn("field not found: ExperienceDescription", "ProfileExtraction", "extract-role-description", $"profileUrl={profilePage.Url}");
+                AppLog.Warn("field not found: AboutDescription", "ProfileExtraction", "extract-role-description", $"profileUrl={profilePage.Url}");
             }
             else
             {
@@ -164,37 +164,40 @@ internal sealed class ProfileExtractionService
                 continue;
             }
 
-            var titles = new List<string>();
+            var sectionLinesTitle = await FindCurrentRoleFromSectionLinesAsync(section, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(sectionLinesTitle))
+            {
+                return sectionLinesTitle;
+            }
+
+            var structuredTitle = await ExtractStructuredCurrentRoleAsync(section, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(structuredTitle))
+            {
+                return structuredTitle;
+            }
+
             foreach (var titleSelector in LinkedInSelectors.CurrentExperienceTitleCandidates)
             {
-                await CollectMatchingTextsAsync(section, titleSelector, LooksLikeExperienceTitle, cancellationToken, titles, 3);
-                if (titles.Count >= 3)
+                var title = await FindFirstMatchingTextAsync(section, titleSelector, LooksLikeExperienceTitle, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(title))
                 {
-                    break;
+                    return title;
                 }
             }
 
-            if (titles.Count == 0)
+            var fallback = await FindCurrentRoleFromSectionLinesAsync(section, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(fallback))
             {
-                var fallback = await FindBestLineAsync(section, LooksLikeExperienceTitle, cancellationToken, CleanText);
-                if (!string.IsNullOrWhiteSpace(fallback))
-                {
-                    titles.Add(fallback);
-                }
-            }
-
-            if (titles.Count > 0)
-            {
-                return string.Join("; ", titles);
+                return fallback;
             }
         }
 
         return string.Empty;
     }
 
-    private static async Task<string> ExtractCurrentRoleDescriptionAsync(IPage page, CancellationToken cancellationToken)
+    private static async Task<string> ExtractAboutDescriptionAsync(IPage page, CancellationToken cancellationToken)
     {
-        foreach (var sectionSelector in LinkedInSelectors.ExperienceSectionCandidates)
+        foreach (var sectionSelector in LinkedInSelectors.AboutSectionCandidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var section = page.Locator(sectionSelector).First;
@@ -203,16 +206,16 @@ internal sealed class ProfileExtractionService
                 continue;
             }
 
-            foreach (var descriptionSelector in LinkedInSelectors.CurrentExperienceDescriptionCandidates)
+            foreach (var descriptionSelector in LinkedInSelectors.AboutDescriptionCandidates)
             {
-                var description = await FindFirstMatchingTextAsync(section, descriptionSelector, LooksLikeExperienceDescription, cancellationToken);
+                var description = await FindFirstMatchingTextAsync(section, descriptionSelector, LooksLikeAboutDescription, cancellationToken);
                 if (!string.IsNullOrWhiteSpace(description))
                 {
                     return description;
                 }
             }
 
-            var fallback = await FindBestLineAsync(section, LooksLikeExperienceDescription, cancellationToken, CleanText);
+            var fallback = await FindBestLineAsync(section, LooksLikeAboutDescription, cancellationToken, CleanText);
             if (!string.IsNullOrWhiteSpace(fallback))
             {
                 return fallback;
@@ -308,6 +311,110 @@ internal sealed class ProfileExtractionService
         return string.Empty;
     }
 
+    private static async Task<string> ExtractStructuredCurrentRoleAsync(ILocator section, CancellationToken cancellationToken)
+    {
+        var firstVisibleFallback = string.Empty;
+
+        foreach (var itemSelector in LinkedInSelectors.CurrentExperienceItemCandidates)
+        {
+            var items = section.Locator(itemSelector);
+            var count = await items.CountAsync();
+            for (var index = 0; index < count; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var item = items.Nth(index);
+                if (!await item.IsVisibleAsync())
+                {
+                    continue;
+                }
+
+                var itemText = CleanText(await item.InnerTextAsync());
+                if (string.IsNullOrWhiteSpace(itemText) ||
+                    itemText.Equals("Experience", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var title = FindCurrentRoleFromLines(itemText);
+                if (string.IsNullOrWhiteSpace(title))
+                {
+                    title = await ExtractTitleFromExperienceItemAsync(item, cancellationToken);
+                }
+
+                if (string.IsNullOrWhiteSpace(title))
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(firstVisibleFallback))
+                {
+                    firstVisibleFallback = title;
+                }
+
+                if (LooksLikeCurrentExperienceItem(itemText))
+                {
+                    return title;
+                }
+            }
+        }
+
+        return firstVisibleFallback;
+    }
+
+    private static async Task<string> ExtractTitleFromExperienceItemAsync(ILocator item, CancellationToken cancellationToken)
+    {
+        foreach (var titleSelector in LinkedInSelectors.CurrentExperienceTitleCandidates)
+        {
+            var title = await FindFirstMatchingTextAsync(item, titleSelector, LooksLikeExperienceTitle, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(title))
+            {
+                return title;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static async Task<string> FindCurrentRoleFromSectionLinesAsync(ILocator section, CancellationToken cancellationToken)
+    {
+        var raw = await section.InnerTextAsync();
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return string.Empty;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return FindCurrentRoleFromLines(raw);
+    }
+
+    private static string FindCurrentRoleFromLines(string raw)
+    {
+        var lines = raw
+            .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(CleanText)
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .ToArray();
+
+        for (var index = 0; index < lines.Length; index++)
+        {
+            if (!LooksLikeExperienceDateLine(lines[index]))
+            {
+                continue;
+            }
+
+            for (var candidateIndex = index - 1; candidateIndex >= Math.Max(0, index - 3); candidateIndex--)
+            {
+                var candidate = lines[candidateIndex];
+                if (LooksLikeExperienceTitle(candidate))
+                {
+                    return candidate;
+                }
+            }
+        }
+
+        return string.Empty;
+    }
+
     private static async Task WaitForAnyVisibleAsync(
         IPage page,
         IEnumerable<string> selectors,
@@ -368,6 +475,26 @@ internal sealed class ProfileExtractionService
         return value.Length >= 20 && Regex.IsMatch(value, @"\p{L}");
     }
 
+    private static bool LooksLikeAboutDescription(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        if (value.Equals("About", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("... more", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("more", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("followers", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("connections", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("contact info", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return value.Length >= 30 && Regex.IsMatch(value, @"\p{L}");
+    }
+
     private static bool LooksLikeExperienceTitle(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -376,7 +503,9 @@ internal sealed class ProfileExtractionService
         }
 
         if (value.Equals("Experience", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("About", StringComparison.OrdinalIgnoreCase) ||
             value.Equals("Show all experiences", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("Remote", StringComparison.OrdinalIgnoreCase) ||
             value.Contains(" at ", StringComparison.OrdinalIgnoreCase))
         {
             return false;
@@ -387,6 +516,8 @@ internal sealed class ProfileExtractionService
             value.Contains("full-time", StringComparison.OrdinalIgnoreCase) ||
             value.Contains("part-time", StringComparison.OrdinalIgnoreCase) ||
             value.Contains("contract", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("Germany", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("Berlin", StringComparison.OrdinalIgnoreCase) ||
             value.Contains("present", StringComparison.OrdinalIgnoreCase))
         {
             return false;
@@ -398,6 +529,25 @@ internal sealed class ProfileExtractionService
         }
 
         return value.Length >= 3 && Regex.IsMatch(value, @"\p{L}");
+    }
+
+    private static bool LooksLikeCurrentExperienceItem(string value)
+    {
+        return value.Contains("Present", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("Current", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool LooksLikeExperienceDateLine(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        return Regex.IsMatch(
+            value,
+            @"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\b.*\b(?:Present|\d{4})\b",
+            RegexOptions.IgnoreCase);
     }
 
     private static string CleanText(string? value)
