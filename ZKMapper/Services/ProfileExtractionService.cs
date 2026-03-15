@@ -51,6 +51,12 @@ internal sealed class ProfileExtractionService
                 Timeout = 60000
             });
 
+            await profilePage.WaitForSelectorAsync("main", new PageWaitForSelectorOptions
+            {
+                State = WaitForSelectorState.Visible,
+                Timeout = 15000
+            });
+
             AppLog.Action("switching context", "ProfileOpen", "switch-profile-tab", $"profileUrl={target.Href}");
             await profilePage.WaitForLoadStateAsync(LoadState.DOMContentLoaded);
             await profilePage.BringToFrontAsync();
@@ -79,7 +85,7 @@ internal sealed class ProfileExtractionService
 
         try
         {
-            await WaitForProfileReadyAsync(profilePage, cancellationToken);
+            await ResolveProfileHeaderAsync(profilePage, cancellationToken);
 
             var fullName = await _retryService.ExecuteAsync(
                 token => ExtractFullNameAsync(profilePage, token),
@@ -117,7 +123,13 @@ internal sealed class ProfileExtractionService
                 AppLog.Data($"jobTitle={currentTitle}", "ProfileExtraction", "extract-current-roles", $"profileUrl={profilePage.Url};jobTitle={currentTitle}");
             }
 
-            var extracted = new ExtractedProfile(fullName, headline, profilePage.Url, currentTitle, DateTime.UtcNow, searchQuery);
+            var extracted = new ExtractedProfile(
+                fullName,
+                headline,
+                CanonicalizeLinkedInProfileUrl(profilePage.Url),
+                currentTitle,
+                DateTime.UtcNow,
+                searchQuery);
             AppLog.Data($"ProfileUrl={extracted.ProfileUrl}", "ProfileExtraction", "extract-profile", $"profileUrl={extracted.ProfileUrl}");
             AppLog.Result("profile extraction complete", "ProfileExtraction", "extract-profile", $"profileUrl={extracted.ProfileUrl}");
             return extracted;
@@ -130,7 +142,7 @@ internal sealed class ProfileExtractionService
         }
     }
 
-    private static async Task WaitForProfileReadyAsync(IPage page, CancellationToken cancellationToken)
+    private static async Task ResolveProfileHeaderAsync(IPage page, CancellationToken cancellationToken)
     {
         AppLog.Step("waiting for profile page readiness", "ProfileExtraction", "wait-for-profile-ready", $"profileUrl={page.Url}");
         await page.WaitForLoadStateAsync(LoadState.DOMContentLoaded);
@@ -154,7 +166,7 @@ internal sealed class ProfileExtractionService
                     continue;
                 }
 
-                var text = CleanText(await candidate.InnerTextAsync());
+                var text = CleanProfileName(await candidate.InnerTextAsync());
                 if (LooksLikeProfileName(text))
                 {
                     return text;
@@ -171,7 +183,7 @@ internal sealed class ProfileExtractionService
                 continue;
             }
 
-            var text = await FindBestLineAsync(locator, LooksLikeProfileName, cancellationToken);
+            var text = await FindBestLineAsync(locator, LooksLikeProfileName, cancellationToken, CleanProfileName);
             if (!string.IsNullOrWhiteSpace(text))
             {
                 return text;
@@ -213,7 +225,7 @@ internal sealed class ProfileExtractionService
                 continue;
             }
 
-            var text = await FindBestLineAsync(locator, candidate => LooksLikeHeadline(candidate, fullName), cancellationToken);
+            var text = await FindBestLineAsync(locator, candidate => LooksLikeHeadline(candidate, fullName), cancellationToken, CleanText);
             if (!string.IsNullOrWhiteSpace(text))
             {
                 return text;
@@ -243,7 +255,7 @@ internal sealed class ProfileExtractionService
                 }
             }
 
-            var fallback = await FindBestLineAsync(section, LooksLikeExperienceTitle, cancellationToken);
+            var fallback = await FindBestLineAsync(section, LooksLikeExperienceTitle, cancellationToken, CleanText);
             if (!string.IsNullOrWhiteSpace(fallback))
             {
                 return fallback;
@@ -283,7 +295,8 @@ internal sealed class ProfileExtractionService
     private static async Task<string> FindBestLineAsync(
         ILocator scope,
         Func<string, bool> predicate,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<string?, string> cleaner)
     {
         var raw = await scope.InnerTextAsync();
         if (string.IsNullOrWhiteSpace(raw))
@@ -294,7 +307,7 @@ internal sealed class ProfileExtractionService
         foreach (var line in raw.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var text = CleanText(line);
+            var text = cleaner(line);
             if (predicate(text))
             {
                 return text;
@@ -349,6 +362,11 @@ internal sealed class ProfileExtractionService
             return false;
         }
 
+        if (Regex.IsMatch(value, @"\b\d+(st|nd|rd|th)\b", RegexOptions.IgnoreCase))
+        {
+            return false;
+        }
+
         if (value.Contains("followers", StringComparison.OrdinalIgnoreCase) ||
             value.Contains("connections", StringComparison.OrdinalIgnoreCase) ||
             value.Contains("contact info", StringComparison.OrdinalIgnoreCase) ||
@@ -380,6 +398,7 @@ internal sealed class ProfileExtractionService
         if (value.Contains("followers", StringComparison.OrdinalIgnoreCase) ||
             value.Contains("connections", StringComparison.OrdinalIgnoreCase) ||
             value.Contains("contact info", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("location", StringComparison.OrdinalIgnoreCase) ||
             value.Equals("Experience", StringComparison.OrdinalIgnoreCase))
         {
             return false;
@@ -396,7 +415,8 @@ internal sealed class ProfileExtractionService
         }
 
         if (value.Equals("Experience", StringComparison.OrdinalIgnoreCase) ||
-            value.Equals("Show all experiences", StringComparison.OrdinalIgnoreCase))
+            value.Equals("Show all experiences", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains(" at ", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -405,7 +425,8 @@ internal sealed class ProfileExtractionService
             value.Contains("mos", StringComparison.OrdinalIgnoreCase) ||
             value.Contains("full-time", StringComparison.OrdinalIgnoreCase) ||
             value.Contains("part-time", StringComparison.OrdinalIgnoreCase) ||
-            value.Contains("contract", StringComparison.OrdinalIgnoreCase))
+            value.Contains("contract", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("present", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -423,5 +444,30 @@ internal sealed class ProfileExtractionService
         return string.IsNullOrWhiteSpace(value)
             ? string.Empty
             : Regex.Replace(value, "\\s+", " ").Trim();
+    }
+
+    private static string CleanProfileName(string? value)
+    {
+        var text = CleanText(value);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return string.Empty;
+        }
+
+        text = Regex.Replace(text, @"\s*·\s*\d+(st|nd|rd|th)\b", string.Empty, RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"\b(verified|open to work|hiring)\b", string.Empty, RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, "\\s+", " ").Trim();
+        return text;
+    }
+
+    private static string CanonicalizeLinkedInProfileUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return url.Split('?', 2)[0].TrimEnd('/');
+        }
+
+        var canonical = $"{uri.Scheme}://{uri.Host}{uri.AbsolutePath}".TrimEnd('/');
+        return canonical;
     }
 }

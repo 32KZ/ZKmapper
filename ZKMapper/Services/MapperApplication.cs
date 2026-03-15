@@ -8,6 +8,7 @@ namespace ZKMapper.Services;
 internal sealed class MapperApplication
 {
     private readonly ConsolePromptService _promptService;
+    private readonly ConsoleUiService _consoleUiService;
     private readonly SessionStateManager _sessionStateManager;
     private readonly BrowserManager _browserManager;
     private readonly LinkedInRegionMapper _regionMapper;
@@ -20,6 +21,7 @@ internal sealed class MapperApplication
 
     public MapperApplication(
         ConsolePromptService promptService,
+        ConsoleUiService consoleUiService,
         SessionStateManager sessionStateManager,
         BrowserManager browserManager,
         LinkedInRegionMapper regionMapper,
@@ -31,6 +33,7 @@ internal sealed class MapperApplication
         RunStatistics statistics)
     {
         _promptService = promptService;
+        _consoleUiService = consoleUiService;
         _sessionStateManager = sessionStateManager;
         _browserManager = browserManager;
         _regionMapper = regionMapper;
@@ -135,6 +138,7 @@ internal sealed class MapperApplication
                         AppLog.Next("discover matching profiles", "ProcessCompany", "discover-profiles", $"query={keyword}");
                         targets = await _queryService.DiscoverContactsAsync(session.Page, keyword, cancellationToken);
                         AppLog.Result("discovery complete", "ProcessCompany", "discover-profiles", $"query={keyword};targetCount={targets.Count}");
+                        _consoleUiService.ShowDiscoveredProfiles(targets);
                     }
                     catch (Exception ex)
                     {
@@ -143,69 +147,77 @@ internal sealed class MapperApplication
                         continue;
                     }
 
-                    foreach (var target in targets)
-                    {
-                        using (LogContext.PushProperty("ProfileUrl", target.Href))
+                    await _consoleUiService.RunMappingProgressAsync(
+                        input.CompanyName,
+                        targets,
+                        async (target, _, _) =>
                         {
-                            AppLog.Next("open profile", "ProcessCompany", "open-profile", $"profileUrl={target.Href}");
-                            var profilePage = await _profileExtractionService.TryOpenProfileInNewTabAsync(
-                                session.Context,
-                                session.Page,
-                                target,
-                                cancellationToken);
-
-                            if (profilePage is null)
+                            using (LogContext.PushProperty("ProfileUrl", target.Href))
                             {
-                                continue;
-                            }
+                                AppLog.Next("open profile", "ProcessCompany", "open-profile", $"profileUrl={target.Href}");
+                                var profilePage = await _profileExtractionService.TryOpenProfileInNewTabAsync(
+                                    session.Context,
+                                    session.Page,
+                                    target,
+                                    cancellationToken);
 
-                            _statistics.IncrementProfilesScanned();
-
-                            try
-                            {
-                                AppLog.Next("extract profile details", "ProcessCompany", "extract-profile", $"profileUrl={target.Href}");
-                                var profile = await _profileExtractionService.ExtractAsync(profilePage, keyword, cancellationToken);
-                                if (profile is null)
+                                if (profilePage is null)
                                 {
-                                    continue;
+                                    _consoleUiService.ShowExtractionError("Failed to extract profile header");
+                                    return;
                                 }
 
-                                var emails = _emailGenerationService.Generate(profile.FullName, input.CompanyDomain);
-                                var row = new MappedContactRow
-                                {
-                                    CompanyName = input.CompanyName,
-                                    SearchCountry = input.SearchCountry,
-                                    SearchQuery = profile.SearchQuery,
-                                    FullName = profile.FullName,
-                                    Headline = profile.Headline,
-                                    CurrentJobTitles = profile.CurrentJobTitles,
-                                    ProfileURL = profile.ProfileUrl,
-                                    EmailPrimary = emails.Primary,
-                                    EmailAlt1 = emails.Alt1,
-                                    EmailAlt2 = emails.Alt2,
-                                    EmailAlt3 = emails.Alt3,
-                                    TimestampUTC = profile.TimestampUtc
-                                };
+                                _statistics.IncrementProfilesScanned();
 
-                                AppLog.Next("write mapped CSV row", "ProcessCompany", "write-csv-row", $"profileUrl={profile.ProfileUrl}");
-                                await csvWriter.WriteRowAsync(row, cancellationToken);
-                                _statistics.IncrementRecordsWritten();
-                                AppLog.Result("mapped row written", "ProcessCompany", "write-csv-row", $"profileUrl={profile.ProfileUrl};outputPath={csvWriter.OutputPath}");
+                                try
+                                {
+                                    AppLog.Next("extract profile details", "ProcessCompany", "extract-profile", $"profileUrl={target.Href}");
+                                    var profile = await _profileExtractionService.ExtractAsync(profilePage, keyword, cancellationToken);
+                                    if (profile is null)
+                                    {
+                                        _consoleUiService.ShowExtractionError("Failed to extract profile header");
+                                        return;
+                                    }
+
+                                    var emails = _emailGenerationService.GenerateEmailPatterns(profile.FullName, input.CompanyDomain);
+
+                                    var row = new MappedContactRow
+                                    {
+                                        CompanyName = input.CompanyName,
+                                        SearchCountry = input.SearchCountry,
+                                        SearchQuery = profile.SearchQuery,
+                                        FullName = profile.FullName,
+                                        Headline = profile.Headline,
+                                        CurrentJobTitles = profile.CurrentJobTitles,
+                                        ProfileURL = profile.ProfileUrl,
+                                        EmailPrimary = emails.EmailPrimary,
+                                        EmailAlt1 = emails.EmailAlt1,
+                                        EmailAlt2 = emails.EmailAlt2,
+                                        EmailAlt3 = emails.EmailAlt3,
+                                        TimestampUTC = profile.TimestampUtc.ToString("yyyy-MM-ddTHH:mm:ssZ")
+                                    };
+
+                                    AppLog.Next("write mapped CSV row", "ProcessCompany", "write-csv-row", $"profileUrl={profile.ProfileUrl}");
+                                    await csvWriter.WriteRowAsync(row, cancellationToken);
+                                    _statistics.IncrementRecordsWritten();
+                                    AppLog.Result("mapped row written", "ProcessCompany", "write-csv-row", $"profileUrl={profile.ProfileUrl};outputPath={csvWriter.OutputPath}");
+                                    _consoleUiService.ShowExtractedProfile(profile);
+                                }
+                                catch (Exception ex)
+                                {
+                                    AppLog.Error(ex, $"Extraction failure for target {target.Href}", "ProcessCompany", "extract-profile", $"profileUrl={target.Href}");
+                                    _consoleUiService.ShowExtractionError("Failed to extract profile header");
+                                }
+                                finally
+                                {
+                                    AppLog.Action("close", "ProcessCompany", "close-profile-tab", $"profileUrl={target.Href}");
+                                    await profilePage.CloseAsync();
+                                    AppLog.Action("bring-to-front", "ProcessCompany", "focus-results-page", $"companyPageUrl={session.Page.Url}");
+                                    await session.Page.BringToFrontAsync();
+                                    await _humanDelayService.DelayAsync(DelayProfile.Navigation, "pause after closing profile tab and returning to results", cancellationToken);
+                                }
                             }
-                            catch (Exception ex)
-                            {
-                                AppLog.Error(ex, $"Extraction failure for target {target.Href}", "ProcessCompany", "extract-profile", $"profileUrl={target.Href}");
-                            }
-                            finally
-                            {
-                                AppLog.Action("close", "ProcessCompany", "close-profile-tab", $"profileUrl={target.Href}");
-                                await profilePage.CloseAsync();
-                                AppLog.Action("bring-to-front", "ProcessCompany", "focus-results-page", $"companyPageUrl={session.Page.Url}");
-                                await session.Page.BringToFrontAsync();
-                                await _humanDelayService.DelayAsync(DelayProfile.Navigation, "pause after closing profile tab and returning to results", cancellationToken);
-                            }
-                        }
-                    }
+                        });
 
                     AppLog.Next("advance to next query if available", "ProcessCompany", "next-query", $"query={keyword}");
                     await _humanDelayService.DelayAsync(DelayProfile.Navigation, "pause between company title queries", cancellationToken);

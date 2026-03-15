@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using CsvHelper;
+using CsvHelper.Configuration;
 using ZKMapper.Infrastructure;
 using ZKMapper.Models;
 
@@ -30,6 +31,7 @@ internal sealed class CsvWriterService : IDisposable
 
         _streamWriter = new StreamWriter(new FileStream(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read));
         _csvWriter = new CsvWriter(_streamWriter, CultureInfo.InvariantCulture);
+        _csvWriter.Context.RegisterClassMap<MappedContactRowMap>();
         _csvWriter.WriteHeader<MappedContactRow>();
         _csvWriter.NextRecord();
         _streamWriter.Flush();
@@ -90,5 +92,24 @@ internal sealed class CsvWriterService : IDisposable
 
         var match = Regex.Match(fileName, @"_Run(\d+)", RegexOptions.IgnoreCase);
         return match.Success && int.TryParse(match.Groups[1].Value, out var parsed) ? parsed : 0;
+    }
+
+    private sealed class MappedContactRowMap : ClassMap<MappedContactRow>
+    {
+        public MappedContactRowMap()
+        {
+            Map(row => row.CompanyName).Index(0);
+            Map(row => row.SearchCountry).Index(1);
+            Map(row => row.SearchQuery).Index(2);
+            Map(row => row.FullName).Index(3);
+            Map(row => row.Headline).Index(4);
+            Map(row => row.CurrentJobTitles).Index(5);
+            Map(row => row.ProfileURL).Index(6);
+            Map(row => row.EmailPrimary).Index(7);
+            Map(row => row.EmailAlt1).Index(8);
+            Map(row => row.EmailAlt2).Index(9);
+            Map(row => row.EmailAlt3).Index(10);
+            Map(row => row.TimestampUTC).Index(11);
+        }
     }
 }

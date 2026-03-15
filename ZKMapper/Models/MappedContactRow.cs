@@ -13,5 +13,5 @@ internal sealed class MappedContactRow
     public string EmailAlt1 { get; init; } = string.Empty;
     public string EmailAlt2 { get; init; } = string.Empty;
     public string EmailAlt3 { get; init; } = string.Empty;
-    public DateTime TimestampUTC { get; init; }
+    public string TimestampUTC { get; init; } = string.Empty;
 }

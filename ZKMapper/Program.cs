@@ -33,12 +33,16 @@ internal sealed class Program
             var contextFactory = new PlaywrightContextFactory();
             var configurationService = new ConfigurationService();
             var promptService = new ConsolePromptService();
+            var consoleUiService = new ConsoleUiService();
             var humanDelayService = new HumanDelayService(configurationService);
             var retryService = new RetryService();
             var scrollExhaustionService = new ScrollExhaustionService(humanDelayService);
 
+            consoleUiService.ShowStartupBanner();
+
             var app = new MapperApplication(
                 promptService,
+                consoleUiService,
                 new SessionStateManager(),
                 new BrowserManager(contextFactory),
                 new LinkedInRegionMapper(),
