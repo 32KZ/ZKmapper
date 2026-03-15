@@ -7,6 +7,9 @@ internal sealed class LinkedInRegionMapper
     private static readonly Dictionary<string, string> RegionIds = new(StringComparer.OrdinalIgnoreCase)
     {
         ["germany"] = "101282230",
+        ["netherlands"] = "102890719",
+        ["the netherlands"] = "102890719",
+        ["nl"] = "102890719",
         ["united kingdom"] = "101165590",
         ["uk"] = "101165590",
         ["great britain"] = "101165590",
