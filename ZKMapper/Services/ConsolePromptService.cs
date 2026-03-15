@@ -1,3 +1,4 @@
+using Spectre.Console;
 using ZKMapper.Infrastructure;
 using ZKMapper.Models;
 
@@ -50,24 +51,14 @@ internal sealed class ConsolePromptService
 
     public bool PromptYesNo(string message)
     {
-        while (true)
-        {
-            Console.Write($"{message} (y/n): ");
-            var response = Console.ReadLine()?.Trim().ToLowerInvariant();
-            AppLog.Input($"yesNoPrompt={message};response={response}", $"prompt={message};response={response}");
+        var selection = AnsiConsole.Prompt(
+            new SelectionPrompt<string>()
+                .Title(message)
+                .PageSize(10)
+                .AddChoices("Yes", "No"));
 
-            if (response is "y" or "yes")
-            {
-                return true;
-            }
-
-            if (response is "n" or "no")
-            {
-                return false;
-            }
-
-            Console.WriteLine("Please enter y or n.");
-        }
+        AppLog.Input($"yesNoPrompt={message};response={selection}", $"prompt={message};response={selection}");
+        return string.Equals(selection, "Yes", StringComparison.Ordinal);
     }
 
     public void WaitForEnter(string message)
@@ -114,6 +105,14 @@ internal sealed class ConsolePromptService
 
     public string PromptTextOrDefault(string label, string defaultValue)
     {
+        if (string.IsNullOrEmpty(defaultValue))
+        {
+            Console.Write($"{label}: ");
+            var directValue = Console.ReadLine()?.Trim() ?? string.Empty;
+            AppLog.Input($"textPrompt={label};response={directValue}", $"label={label};response={directValue};defaultApplied=false");
+            return directValue;
+        }
+
         Console.Write($"{label} [{defaultValue}]: ");
         var value = Console.ReadLine()?.Trim();
         var resolvedValue = string.IsNullOrWhiteSpace(value) ? defaultValue : value;

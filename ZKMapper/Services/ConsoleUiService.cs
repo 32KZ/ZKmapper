@@ -6,13 +6,18 @@ namespace ZKMapper.Services;
 
 internal sealed class ConsoleUiService
 {
+    public void ResetScreen()
+    {
+        AnsiConsole.Clear();
+        ShowStartupBanner();
+    }
+
     public void ShowStartupBanner()
     {
-        AnsiConsole.Write(new Rule());
-        AnsiConsole.MarkupLine("[deepskyblue1]╔══════════════════════════════╗[/]");
-        AnsiConsole.MarkupLine("[deepskyblue1]        ZKMapper[/]");
-        AnsiConsole.MarkupLine("[grey] LinkedIn Company Mapper[/]");
-        AnsiConsole.MarkupLine("[deepskyblue1]╚══════════════════════════════╝[/]");
+        AnsiConsole.MarkupLine("[deepskyblue1]+-------------------------------+[/]");
+        AnsiConsole.MarkupLine("[deepskyblue1]|[/]           [deepskyblue1]ZKMapper[/]           [deepskyblue1]|[/]");
+        AnsiConsole.MarkupLine("[deepskyblue1]|[/] [grey]  LinkedIn Company Mapper   [/][deepskyblue1]|[/]");
+        AnsiConsole.MarkupLine("[deepskyblue1]+-------------------------------+[/]");
         AnsiConsole.WriteLine();
     }
 
@@ -72,7 +77,7 @@ internal sealed class ConsoleUiService
 
     public void ShowExtractedProfile(ExtractedProfile profile)
     {
-        AnsiConsole.MarkupLine($"[green]✓[/] {Escape(profile.FullName)}");
+        AnsiConsole.MarkupLine($"[green]OK[/] {Escape(profile.FullName)}");
         AnsiConsole.MarkupLine($"  Headline: {Escape(NullSafe(profile.Headline))}");
         AnsiConsole.MarkupLine($"  Role: {Escape(NullSafe(profile.CurrentJobTitles))}");
         AnsiConsole.WriteLine();

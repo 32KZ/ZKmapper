@@ -22,6 +22,8 @@ internal sealed class Program
         Directory.CreateDirectory(AppPaths.ConfigDirectory);
         Directory.CreateDirectory(AppPaths.InputDirectory);
 
+        LoggerConsoleHost.Start(runtimeOptions.LogFilePath);
+
         AppLog.TraceEnabled = runtimeOptions.VerboseEnabled;
         Log.Logger = LoggingSetup.CreateLogger(runtimeOptions);
 
@@ -52,7 +54,7 @@ internal sealed class Program
                 new EmailGenerationService(),
                 humanDelayService,
                 statistics);
-            var menuService = new MenuService(promptService, app, configurationService, new InputFileLoader());
+            var menuService = new MenuService(promptService, consoleUiService, app, configurationService, new InputFileLoader());
 
             var command = runtimeOptions.OriginalArgs
                 .FirstOrDefault(arg => !arg.StartsWith("--", StringComparison.Ordinal))

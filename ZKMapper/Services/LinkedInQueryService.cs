@@ -127,7 +127,7 @@ internal sealed class LinkedInQueryService
             }
             else
             {
-                var mainLocator = page.Locator("main").First;
+                var mainLocator = page.Locator(LinkedInSelectors.MainContentSelector).First;
                 if (await mainLocator.CountAsync() > 0)
                 {
                     scope = mainLocator;
@@ -135,7 +135,7 @@ internal sealed class LinkedInQueryService
                 }
                 else
                 {
-                    scope = page.Locator("body").First;
+                    scope = page.Locator(LinkedInSelectors.BodySelector).First;
                     scopeSource = "body";
                 }
             }

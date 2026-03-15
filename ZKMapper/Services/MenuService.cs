@@ -1,3 +1,5 @@
+using Spectre.Console;
+using System.Diagnostics;
 using ZKMapper.Infrastructure;
 using ZKMapper.Models;
 
@@ -6,17 +8,20 @@ namespace ZKMapper.Services;
 internal sealed class MenuService
 {
     private readonly ConsolePromptService _promptService;
+    private readonly ConsoleUiService _consoleUiService;
     private readonly MapperApplication _mapperApplication;
     private readonly ConfigurationService _configurationService;
     private readonly InputFileLoader _inputFileLoader;
 
     public MenuService(
         ConsolePromptService promptService,
+        ConsoleUiService consoleUiService,
         MapperApplication mapperApplication,
         ConfigurationService configurationService,
         InputFileLoader inputFileLoader)
     {
         _promptService = promptService;
+        _consoleUiService = consoleUiService;
         _mapperApplication = mapperApplication;
         _configurationService = configurationService;
         _inputFileLoader = inputFileLoader;
@@ -26,35 +31,33 @@ internal sealed class MenuService
     {
         while (true)
         {
-            Console.WriteLine("==== ZKMapper ====");
-            Console.WriteLine("1 Start Mapping");
-            Console.WriteLine("2 Map From Input File");
-            Console.WriteLine("3 Manage CSV Files");
-            Console.WriteLine("4 Options");
-            Console.WriteLine("5 Exit");
+            _consoleUiService.ResetScreen();
+            var selection = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("Select an option")
+                    .PageSize(10)
+                    .AddChoices("Start Mapping", "Map From Input File", "Manage CSV Files", "Options", "Exit"));
 
-            var selection = _promptService.PromptMenuChoice("Select option");
             AppLog.Step("main menu selection received", "Menu", "show-main-menu", $"selection={selection}");
 
             switch (selection)
             {
-                case "1":
+                case "Start Mapping":
                     await StartMappingAsync();
                     break;
-                case "2":
+                case "Map From Input File":
                     await MapFromInputFileAsync();
                     break;
-                case "3":
+                case "Manage CSV Files":
                     ManageCsv();
                     break;
-                case "4":
+                case "Options":
                     OptionsMenu();
                     break;
-                case "5":
-                    AppLog.Result("main menu exit selected", "Menu", "show-main-menu", "selection=5");
+                case "Exit":
+                    AppLog.Result("main menu exit selected", "Menu", "show-main-menu", "selection=Exit");
                     return 0;
                 default:
-                    Console.WriteLine("Invalid option.");
                     AppLog.Warn("invalid main menu selection", "Menu", "show-main-menu", $"selection={selection}");
                     break;
             }
@@ -70,6 +73,7 @@ internal sealed class MenuService
 
         while (true)
         {
+            _consoleUiService.ResetScreen();
             var input = _promptService.PromptCompanyInput();
             queue.Add(input);
             AppLog.Info("[QUEUE] company added", "Menu", "start-mapping", $"companyName={input.CompanyName}");
@@ -82,17 +86,20 @@ internal sealed class MenuService
         }
 
         AppLog.Info("[QUEUE] starting company mapping", "Menu", "start-mapping", $"queueCount={queue.Count}");
-        Console.WriteLine("Processing queue...");
+        _consoleUiService.ResetScreen();
+        AnsiConsole.MarkupLine("[grey]Processing queue...[/]");
         await _mapperApplication.RunCollectionAsync(queue);
     }
 
     public async Task MapFromInputFileAsync()
     {
         AppLog.Step("starting batch mapping from input file", "Menu", "map-from-input-file");
+        _consoleUiService.ResetScreen();
         var inputPath = _promptService.PromptTextOrDefault("Enter path to input file", AppPaths.DefaultBatchInputFilePath);
         var queue = _inputFileLoader.LoadQueue(inputPath);
-        Console.WriteLine($"Loaded {queue.Count} companies");
-        Console.WriteLine("Processing queue...");
+        _consoleUiService.ResetScreen();
+        AnsiConsole.MarkupLine($"[grey]Loaded {queue.Count} companies[/]");
+        AnsiConsole.MarkupLine("[grey]Processing queue...[/]");
         await _mapperApplication.RunCollectionAsync(queue);
     }
 
@@ -100,6 +107,7 @@ internal sealed class MenuService
     {
         while (true)
         {
+            _consoleUiService.ResetScreen();
             Directory.CreateDirectory(AppPaths.OutputDirectory);
             var files = Directory
                 .EnumerateFiles(AppPaths.OutputDirectory, "*.csv", SearchOption.TopDirectoryOnly)
@@ -107,52 +115,58 @@ internal sealed class MenuService
                 .ToArray();
 
             AppLog.Info("[CSV] listing CSV files", "Menu", "manage-csv", $"fileCount={files.Length}");
-            Console.WriteLine("Stored CSV files:");
 
             if (files.Length == 0)
             {
-                Console.WriteLine("No CSV files found.");
-            }
-            else
-            {
-                for (var index = 0; index < files.Length; index++)
-                {
-                    Console.WriteLine($"{index + 1} {Path.GetFileName(files[index])}");
-                }
+                AnsiConsole.MarkupLine("[grey]No CSV files found.[/]");
+                AnsiConsole.Prompt(
+                    new SelectionPrompt<string>()
+                        .Title("CSV files")
+                        .PageSize(10)
+                        .AddChoices("Back"));
+                return;
             }
 
-            Console.WriteLine("Enter number to delete");
-            Console.WriteLine("Enter A to delete all");
-            Console.WriteLine("Enter B to go back");
+            var fileChoices = files
+                .Select(Path.GetFileName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Cast<string>()
+                .Append("Back")
+                .ToArray();
 
-            var selection = _promptService.PromptMenuChoice("Select CSV action");
-            if (string.Equals(selection, "B", StringComparison.OrdinalIgnoreCase))
+            var selectedFile = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("Stored CSV Files")
+                    .PageSize(10)
+                    .AddChoices(fileChoices));
+
+            if (selectedFile == "Back")
             {
                 return;
             }
 
-            if (string.Equals(selection, "A", StringComparison.OrdinalIgnoreCase))
-            {
-                AppLog.Info("[CSV] deleting file", "Menu", "manage-csv", "selection=all");
-                foreach (var file in files)
-                {
-                    File.Delete(file);
-                }
+            var targetFile = files.First(file => string.Equals(Path.GetFileName(file), selectedFile, StringComparison.OrdinalIgnoreCase));
+            var action = PromptSelector(
+                $"CSV File: {selectedFile}",
+                "Open",
+                "Delete",
+                "Back");
 
-                Console.WriteLine("All CSV files deleted.");
+            if (action == "Back")
+            {
                 continue;
             }
 
-            if (!int.TryParse(selection, out var fileNumber) || fileNumber < 1 || fileNumber > files.Length)
+            if (action == "Open")
             {
-                Console.WriteLine("Invalid selection.");
+                OpenCsvFile(targetFile);
                 continue;
             }
 
-            var targetFile = files[fileNumber - 1];
             AppLog.Info("[CSV] deleting file", "Menu", "manage-csv", $"file={targetFile}");
             File.Delete(targetFile);
-            Console.WriteLine($"Deleted {Path.GetFileName(targetFile)}");
+            _consoleUiService.ResetScreen();
+            AnsiConsole.MarkupLine($"[red]Deleted {Markup.Escape(Path.GetFileName(targetFile))}[/]");
         }
     }
 
@@ -160,42 +174,162 @@ internal sealed class MenuService
     {
         while (true)
         {
+            _consoleUiService.ResetScreen();
             var navigation = _configurationService.GetDelayRange(DelayProfile.Navigation);
             var scroll = _configurationService.GetDelayRange(DelayProfile.Scroll);
             var profile = _configurationService.GetDelayRange(DelayProfile.Profile);
 
-            Console.WriteLine("Options");
-            Console.WriteLine($"1 Navigation Delay ({navigation.MinMs}-{navigation.MaxMs} ms)");
-            Console.WriteLine($"2 Scroll Delay ({scroll.MinMs}-{scroll.MaxMs} ms)");
-            Console.WriteLine($"3 Profile Delay ({profile.MinMs}-{profile.MaxMs} ms)");
-            Console.WriteLine("4 Back");
-
-            var selection = _promptService.PromptMenuChoice("Select option");
+            var selection = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("Options")
+                    .PageSize(10)
+                    .AddChoices(
+                        $"Navigation Delay ({navigation.MinMs}-{navigation.MaxMs} ms)",
+                        $"Scroll Delay ({scroll.MinMs}-{scroll.MaxMs} ms)",
+                        $"Profile Delay ({profile.MinMs}-{profile.MaxMs} ms)",
+                        "Back"));
             switch (selection)
             {
-                case "1":
+                case var _ when selection.StartsWith("Navigation Delay", StringComparison.Ordinal):
                     UpdateDelayRange(DelayProfile.Navigation, "Navigation Delay");
                     break;
-                case "2":
+                case var _ when selection.StartsWith("Scroll Delay", StringComparison.Ordinal):
                     UpdateDelayRange(DelayProfile.Scroll, "Scroll Delay");
                     break;
-                case "3":
+                case var _ when selection.StartsWith("Profile Delay", StringComparison.Ordinal):
                     UpdateDelayRange(DelayProfile.Profile, "Profile Delay");
                     break;
-                case "4":
+                case "Back":
                     return;
-                default:
-                    Console.WriteLine("Invalid option.");
-                    break;
             }
         }
     }
 
     private void UpdateDelayRange(DelayProfile profile, string label)
     {
-        Console.WriteLine($"{label}:");
-        var min = _promptService.PromptRequiredInt("Min ms");
-        var max = _promptService.PromptRequiredInt("Max ms");
-        _configurationService.UpdateDelayRange(profile, new DelayRange(min, max));
+        var previous = _configurationService.GetDelayRange(profile);
+        var currentMin = previous.MinMs;
+        var currentMax = previous.MaxMs;
+        var selectedIndex = 0;
+        var actions = new[] { "Min", "Max", "Save", "Exit" };
+
+        while (true)
+        {
+            _consoleUiService.ResetScreen();
+            AnsiConsole.MarkupLine($"[bold]{Markup.Escape(label)}[/]");
+            AnsiConsole.MarkupLine($"[grey]Previously set:[/] Min {previous.MinMs} ms | Max {previous.MaxMs} ms");
+            AnsiConsole.MarkupLine($"[grey]Use Up/Down to select. Left/Right changes by 1000 ms. Enter activates Save/Exit.[/]");
+            AnsiConsole.WriteLine();
+
+            DrawDelayEditorRow(actions, selectedIndex, 0, $"Min: {currentMin} ms");
+            DrawDelayEditorRow(actions, selectedIndex, 1, $"Max: {currentMax} ms");
+            DrawDelayEditorRow(actions, selectedIndex, 2, "Save");
+            DrawDelayEditorRow(actions, selectedIndex, 3, "Exit");
+
+            var key = Console.ReadKey(intercept: true).Key;
+            switch (key)
+            {
+                case ConsoleKey.UpArrow:
+                    selectedIndex = selectedIndex == 0 ? actions.Length - 1 : selectedIndex - 1;
+                    break;
+                case ConsoleKey.DownArrow:
+                    selectedIndex = (selectedIndex + 1) % actions.Length;
+                    break;
+                case ConsoleKey.LeftArrow:
+                    if (selectedIndex == 0)
+                    {
+                        currentMin = Math.Max(0, currentMin - 1000);
+                        if (currentMin > currentMax)
+                        {
+                            currentMax = currentMin;
+                        }
+                    }
+                    else if (selectedIndex == 1)
+                    {
+                        currentMax = Math.Max(currentMin, currentMax - 1000);
+                    }
+                    break;
+                case ConsoleKey.RightArrow:
+                    if (selectedIndex == 0)
+                    {
+                        currentMin += 1000;
+                        if (currentMin > currentMax)
+                        {
+                            currentMax = currentMin;
+                        }
+                    }
+                    else if (selectedIndex == 1)
+                    {
+                        currentMax += 1000;
+                    }
+                    break;
+                case ConsoleKey.Enter:
+                    if (selectedIndex == 2)
+                    {
+                        _configurationService.UpdateDelayRange(profile, new DelayRange(currentMin, currentMax));
+                        _consoleUiService.ResetScreen();
+                        AnsiConsole.MarkupLine($"[green]Saved {Markup.Escape(label)}:[/] Min {currentMin} ms | Max {currentMax} ms");
+                        return;
+                    }
+
+                    if (selectedIndex == 3)
+                    {
+                        return;
+                    }
+                    break;
+                case ConsoleKey.Escape:
+                    return;
+            }
+        }
+    }
+
+    private string PromptSelector(string title, params string[] choices)
+    {
+        _consoleUiService.ResetScreen();
+        return AnsiConsole.Prompt(
+            new SelectionPrompt<string>()
+                .Title(title)
+                .PageSize(10)
+                .AddChoices(choices));
+    }
+
+    private void OpenCsvFile(string targetFile)
+    {
+        _consoleUiService.ResetScreen();
+        var program = _promptService.PromptTextOrDefault("Program to open CSV (leave blank for default app)", string.Empty);
+
+        if (string.IsNullOrWhiteSpace(program))
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = targetFile,
+                UseShellExecute = true
+            });
+            AppLog.Info("[CSV] opened file with default program", "Menu", "manage-csv", $"file={targetFile}");
+            _consoleUiService.ResetScreen();
+            AnsiConsole.MarkupLine($"[green]Opened {Markup.Escape(Path.GetFileName(targetFile))} with the default program.[/]");
+            return;
+        }
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = program,
+            Arguments = $"\"{targetFile}\"",
+            UseShellExecute = true
+        });
+        AppLog.Info("[CSV] opened file with selected program", "Menu", "manage-csv", $"file={targetFile};program={program}");
+        _consoleUiService.ResetScreen();
+        AnsiConsole.MarkupLine($"[green]Opened {Markup.Escape(Path.GetFileName(targetFile))} with {Markup.Escape(program)}.[/]");
+    }
+
+    private static void DrawDelayEditorRow(string[] actions, int selectedIndex, int rowIndex, string text)
+    {
+        if (selectedIndex == rowIndex)
+        {
+            AnsiConsole.MarkupLine($"[deepskyblue1]>[/] [bold]{Markup.Escape(text)}[/]");
+            return;
+        }
+
+        AnsiConsole.MarkupLine($"  {Markup.Escape(text)}");
     }
 }

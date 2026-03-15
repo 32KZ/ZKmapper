@@ -51,10 +51,10 @@ internal sealed class ProfileExtractionService
                 Timeout = 60000
             });
 
-            await profilePage.WaitForSelectorAsync("main", new PageWaitForSelectorOptions
+            await profilePage.WaitForSelectorAsync(LinkedInSelectors.MainContentSelector, new PageWaitForSelectorOptions
             {
                 State = WaitForSelectorState.Visible,
-                Timeout = 15000
+                Timeout = 8000
             });
 
             AppLog.Action("switching context", "ProfileOpen", "switch-profile-tab", $"profileUrl={target.Href}");
@@ -146,8 +146,12 @@ internal sealed class ProfileExtractionService
     {
         AppLog.Step("waiting for profile page readiness", "ProfileExtraction", "wait-for-profile-ready", $"profileUrl={page.Url}");
         await page.WaitForLoadStateAsync(LoadState.DOMContentLoaded);
-        await WaitForAnyVisibleAsync(page, LinkedInSelectors.ProfileShellCandidates, 15000, cancellationToken, "profile-shell");
-        await WaitForAnyVisibleAsync(page, LinkedInSelectors.ProfileHeaderReadinessCandidates, 15000, cancellationToken, "profile-header");
+        await page.WaitForSelectorAsync(LinkedInSelectors.MainContentSelector, new PageWaitForSelectorOptions
+        {
+            State = WaitForSelectorState.Visible,
+            Timeout = 8000
+        });
+        await WaitForAnyVisibleAsync(page, LinkedInSelectors.ProfileHeaderReadinessCandidates, 8000, cancellationToken, "profile-header");
         AppLog.Result("profile page ready", "ProfileExtraction", "wait-for-profile-ready", $"profileUrl={page.Url}");
     }
 
@@ -246,19 +250,28 @@ internal sealed class ProfileExtractionService
                 continue;
             }
 
+            var titles = new List<string>();
             foreach (var titleSelector in LinkedInSelectors.CurrentExperienceTitleCandidates)
             {
-                var title = await FindFirstMatchingTextAsync(section, titleSelector, LooksLikeExperienceTitle, cancellationToken);
-                if (!string.IsNullOrWhiteSpace(title))
+                await CollectMatchingTextsAsync(section, titleSelector, LooksLikeExperienceTitle, cancellationToken, titles, 3);
+                if (titles.Count >= 3)
                 {
-                    return title;
+                    break;
                 }
             }
 
-            var fallback = await FindBestLineAsync(section, LooksLikeExperienceTitle, cancellationToken, CleanText);
-            if (!string.IsNullOrWhiteSpace(fallback))
+            if (titles.Count == 0)
             {
-                return fallback;
+                var fallback = await FindBestLineAsync(section, LooksLikeExperienceTitle, cancellationToken, CleanText);
+                if (!string.IsNullOrWhiteSpace(fallback))
+                {
+                    titles.Add(fallback);
+                }
+            }
+
+            if (titles.Count > 0)
+            {
+                return string.Join("; ", titles);
             }
         }
 
@@ -290,6 +303,40 @@ internal sealed class ProfileExtractionService
         }
 
         return string.Empty;
+    }
+
+    private static async Task CollectMatchingTextsAsync(
+        ILocator scope,
+        string selector,
+        Func<string, bool> predicate,
+        CancellationToken cancellationToken,
+        IList<string> results,
+        int maxResults)
+    {
+        var matches = scope.Locator(selector);
+        var count = await matches.CountAsync();
+        for (var index = 0; index < count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (results.Count >= maxResults)
+            {
+                return;
+            }
+
+            var candidate = matches.Nth(index);
+            if (!await candidate.IsVisibleAsync())
+            {
+                continue;
+            }
+
+            var text = CleanText(await candidate.InnerTextAsync());
+            if (!predicate(text) || results.Contains(text, StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            results.Add(text);
+        }
     }
 
     private static async Task<string> FindBestLineAsync(

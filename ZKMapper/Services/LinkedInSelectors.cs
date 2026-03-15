@@ -3,6 +3,8 @@ namespace ZKMapper.Services;
 internal static class LinkedInSelectors
 {
     public const string ExperienceItemSelector = "li, div";
+    public const string MainContentSelector = "main";
+    public const string BodySelector = "body";
 
     public static readonly string[] ResultsContainerCandidates =
     {
@@ -87,6 +89,7 @@ internal static class LinkedInSelectors
         "main h1",
         "div[class*='pv-text-details'] h1",
         "div[class*='top-card'] h1",
+        "div[class*='pv-text-details']",
         "main div.text-body-medium",
         "main div[class*='profile-top-card']"
     };

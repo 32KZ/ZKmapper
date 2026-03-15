@@ -15,8 +15,6 @@ internal static class LoggingSetup
             .MinimumLevel.Is(minimumLevel)
             .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
             .Enrich.FromLogContext()
-            .WriteTo.Console(
-                outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} step={step} action={action} data={data} duration={duration}{NewLine}{Exception}")
             .WriteTo.File(
                 runtimeOptions.LogFilePath,
                 outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj} step={step} action={action} data={data} duration={duration} Company={Company} Query={Query} ProfileUrl={ProfileUrl}{NewLine}{Exception}")

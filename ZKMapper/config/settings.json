@@ -3,7 +3,7 @@
     "NavigationMinMs": 3000,
     "NavigationMaxMs": 7000,
     "ScrollMinMs": 2000,
-    "ScrollMaxMs": 6000,
+    "ScrollMaxMs": 4000,
     "ProfileMinMs": 10000,
     "ProfileMaxMs": 25000
   }
