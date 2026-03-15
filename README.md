@@ -18,7 +18,7 @@ ZKMapper uses saved browser session state to maintain authentication.
 
 These session files may contain sensitive cookies and authentication data.
 
-They must **never be committed to public repositories**.
+They must **never be committed to public repositories**. If this data IS committed, somone could spoof your session. ensure that the sessions folder is in git ignore. same with the CSV files, as that is personal data.
 
 ---
 
